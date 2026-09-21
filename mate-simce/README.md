@@ -44,6 +44,26 @@ Las variables `NEXT_PUBLIC_*` son necesarias para el cliente de Supabase.
 `GEMINI_API_KEY` debe utilizarse unicamente en codigo del servidor y nunca debe
 tener el prefijo `NEXT_PUBLIC_`.
 
+## Carpetas principales
+
+- app/
+  - api/
+    - auth/
+    - exercises/
+    - tutor/
+  - dashboard/
+  - ejercicios/
+- components/
+  - ui/
+  - dashboard/
+  - tutor/
+- lib/
+  - ai/
+  - math/
+  - services/
+- supabase/
+- types/
+
 ## Scripts
 
 ```bash
