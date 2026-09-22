@@ -1,9 +1,9 @@
 # MateSIMCE
 
-Aplicacion web en Next.js para apoyar el aprendizaje de matematica de nivel de
-preparatoria mediante un tutor con IA.
+Aplicacion web en Next.js para apoyar el aprendizaje de matematica de 2° medio con un tutor IA.
 
 ## Stack
+Jamstack serverless:
 
 - Next.js 16 con App Router, TypeScript y Tailwind CSS 4
 - shadcn/ui para componentes de interfaz
@@ -11,12 +11,6 @@ preparatoria mediante un tutor con IA.
 - Vercel AI SDK con Google Gemini
 - KaTeX mediante `react-katex` para expresiones matematicas
 
-## Requisitos
-
-- Node.js 20 o superior
-- npm 10 o superior
-- Un proyecto de Supabase
-- Una API key de Gemini para las funcionalidades de IA
 
 ## Instalacion local
 
@@ -31,18 +25,13 @@ Abre http://localhost:3000.
 
 ## Variables de entorno
 
-Crea un archivo `.env` en la raiz del proyecto. El archivo ya existente no se
-debe publicar ni compartir:
+Archivo `.env` en la raiz del proyecto. 
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 GEMINI_API_KEY=your-gemini-api-key
 ```
-
-Las variables `NEXT_PUBLIC_*` son necesarias para el cliente de Supabase.
-`GEMINI_API_KEY` debe utilizarse unicamente en codigo del servidor y nunca debe
-tener el prefijo `NEXT_PUBLIC_`.
 
 ## Carpetas principales
 
@@ -73,24 +62,15 @@ npm run build    # compilacion de produccion
 npm run start    # servidor de produccion
 ```
 
-## Publicar en GitHub
+## Integracion y despliegue continuo
 
-Si el repositorio remoto representa solamente esta aplicacion, ejecuta los
-comandos desde `MateSIMCE/mate-simce`:
+El proyecto usa GitHub Actions para validar automaticamente cada cambio. El
+workflow se encuentra en `.github/workflows/ci.yml` y ejecuta `npm ci`,
+`npm run lint` y `npm run build` en un runner `ubuntu-latest` con Node.js 20.
 
-```bash
-git init
-git add .
-git commit -m "Initial project setup"
-git branch -M main
-git remote add origin https://github.com/USUARIO/REPOSITORIO.git
-git push -u origin main
-```
+La validacion se ejecuta cuando:
 
-No incluyas `.env`, `node_modules`, `.next` ni otros archivos ignorados.
+- se hace push a `main`;
+- se hace push a una rama `feat/**`;
+- se abre o actualiza un Pull Request hacia `main`.
 
-## Despliegue en Vercel
-
-Importa el repositorio en Vercel y configura las mismas variables de entorno
-en Project Settings. El despliegue continuo se activara con cada push a la
-rama configurada.
