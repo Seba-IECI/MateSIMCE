@@ -1,8 +1,8 @@
+-- Solo para el modelo nuevo. No crea cuentas Auth, participantes ni credenciales.
 BEGIN;
 
 INSERT INTO public.roles (nombre, descripcion)
 VALUES
-  ('alumno', 'Estudiante que practica contenidos y revisa su propio progreso.'),
   ('profesor', 'Docente que administra material educativo y acompaña el aprendizaje.'),
   ('administrador', 'Responsable de la administración general de la plataforma.')
 ON CONFLICT (nombre) DO UPDATE
