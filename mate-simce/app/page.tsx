@@ -110,7 +110,7 @@ export default function Home() {
             </h1>
 
             <p className="mt-6 max-w-xl text-lg leading-8 text-[#63706b]">
-              MateSIMCE acompaña a estudiantes de preparatoria con explicaciones claras,
+              MateSIMCE acompaña a estudiantes de segundo medio con explicaciones claras,
               retroalimentación precisa y práctica adaptada a su nivel.
             </p>
 
@@ -232,7 +232,7 @@ export default function Home() {
                   Diseñado para acompañar cada nivel escolar.
                 </h2>
                 <p className="mt-4 max-w-xl text-base leading-7 text-[#dfe9e6]">
-                  Desde reforzamiento básico hasta preparación para evaluaciones de nivel preparatoria,
+                  Desde reforzamiento básico hasta preparación para el SIMCE de segundo medio,
                   el sistema adapta el nivel de dificultad y la forma de explicar.
                 </p>
               </div>
