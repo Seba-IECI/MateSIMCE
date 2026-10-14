@@ -4,6 +4,23 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Presentation shared by the login and public demonstration only. */
+.matesimce-view {
+  --ms-ink: #253746;
+  --ms-primary: #477d80;
+  --ms-primary-hover: #38686b;
+  --ms-background: #f5f6f4;
+  --ms-border: #dde5e3;
+  --ms-muted: #5f7079;
+  --ms-tint: #ecf2f0;
+  --ms-amber: #d6a568;
+  --ms-amber-tint: #f6edde;
+  --ms-amber-ink: #815b2d;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  color: var(--ms-ink);
+  background-color: var(--ms-background);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
