@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { LogoutButton } from "@/components/auth/logout-button";
+import { ExerciseBrowser } from "@/components/exercises/exercise-browser";
 import {
   BarChart3, BookOpenCheck, BrainCircuit, Check, ChevronRight, Clock3,
   Compass, FileText, House, Menu, MessageCircleQuestion, Sigma, Target, X,
@@ -25,7 +26,7 @@ const topics: Topic[] = [
 
 const menuItems = [
   { label: "Inicio", icon: House, pending: false },
-  { label: "Ejercicios", icon: BookOpenCheck, pending: true },
+  { label: "Ejercicios", icon: BookOpenCheck, pending: false },
   { label: "Ensayos SIMCE", icon: FileText, pending: true },
   { label: "Tutor IA", icon: MessageCircleQuestion, pending: true },
   { label: "Mi progreso", icon: BarChart3, pending: true },
@@ -35,6 +36,7 @@ const cardClass = "rounded-xl border border-[var(--ms-border)] bg-white";
 const pendingClass = "rounded-md bg-[var(--ms-background)] px-2 py-1 text-[11px] font-medium text-[var(--ms-muted)]";
 
 export default function Home() {
+  const [section, setSection] = useState("Inicio");
   const [activeTopic, setActiveTopic] = useState("numeros");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const selectedTopic = topics.find((topic) => topic.key === activeTopic) ?? topics[0];
@@ -57,12 +59,12 @@ export default function Home() {
           </div>
           <p className="mt-4 text-xs leading-5 text-[var(--ms-muted)]">Matemática para 2.º medio</p>
 
-          <nav className="mt-10 space-y-1.5" aria-label="Navegación de demostración">
+          <nav className="mt-10 space-y-1.5" aria-label="Navegación principal">
             <p className="mb-4 px-3 text-[11px] font-medium uppercase tracking-[0.1em] text-[var(--ms-muted)]">Aprendizaje</p>
             {menuItems.map(({ label, icon: Icon, pending }) => (
-              <button key={label} type="button" disabled={pending} aria-current={!pending ? "page" : undefined}
-                onClick={!pending ? () => setIsMenuOpen(false) : undefined}
-                className={"flex w-full items-center gap-2 rounded-lg px-2.5 py-3 text-left text-sm " + (pending ? "cursor-default text-[var(--ms-muted)]" : "bg-[var(--ms-tint)] font-medium text-[var(--ms-primary-hover)]")}>
+              <button key={label} type="button" disabled={pending} aria-current={label === section ? "page" : undefined}
+                onClick={!pending ? () => { setSection(label); setIsMenuOpen(false); } : undefined}
+                className={"flex w-full items-center gap-2 rounded-lg px-2.5 py-3 text-left text-sm " + (label === section ? "bg-[var(--ms-tint)] font-medium text-[var(--ms-primary-hover)]" : "text-[var(--ms-muted)] " + (pending ? "cursor-default" : "hover:bg-[var(--ms-background)]"))}>
                 <Icon size={17} className="shrink-0" aria-hidden="true" />
                 <span className="whitespace-nowrap">{label}</span>
                 {pending && <span className="ml-auto shrink-0 text-[10px]">Pendiente</span>}
@@ -71,8 +73,8 @@ export default function Home() {
           </nav>
 
           <div className="mt-auto border-t border-[var(--ms-border)] pt-5">
-            <p className="text-xs font-medium">Vista de demostración</p>
-            <p className="mt-2 text-xs leading-5 text-[var(--ms-muted)]">Los módulos de aprendizaje están en desarrollo. Los datos mostrados son ejemplos.</p>
+            <p className="text-xs font-medium">MateSIMCE en desarrollo</p>
+            <p className="mt-2 text-xs leading-5 text-[var(--ms-muted)]">Consulta ejercicios publicados. Los módulos de ensayos, tutor y progreso siguen siendo demostrativos.</p>
           </div>
         </aside>
 
@@ -84,18 +86,19 @@ export default function Home() {
               <div className="flex items-center gap-3">
                 <button type="button" className="rounded-lg p-2 text-[var(--ms-muted)] lg:hidden" onClick={() => setIsMenuOpen(true)} aria-label="Abrir menú" aria-expanded={isMenuOpen} aria-controls="demo-navigation"><Menu size={20} aria-hidden="true" /></button>
                 <div>
-                  <p className="text-sm font-semibold">Inicio</p>
+                  <p className="text-sm font-semibold">{section}</p>
                   <p className="mt-1 hidden text-xs text-[var(--ms-muted)] sm:block">Preparación matemática para el SIMCE</p>
                 </div>
               </div>
               <div className="flex items-center gap-4">
-                <span className="hidden text-xs text-[var(--ms-muted)] md:inline">Demostración</span>
+                {section === "Inicio" && <span className="hidden text-xs text-[var(--ms-muted)] md:inline">Demostración</span>}
                 <LogoutButton />
               </div>
             </div>
           </header>
 
           <div className="mx-auto max-w-6xl px-5 py-7 lg:px-8">
+            {section === "Ejercicios" ? <ExerciseBrowser /> : <>
             <div className="mb-7 flex flex-wrap items-start justify-between gap-4">
               <div>
                 <h1 className="text-2xl font-semibold tracking-tight sm:text-[1.75rem]">Bienvenido a MateSIMCE</h1>
@@ -151,8 +154,8 @@ export default function Home() {
                   <span>5 ejercicios</span>
                 </div>
                 <div className="mt-auto pt-6">
-                  <button type="button" disabled className="w-full cursor-default rounded-lg border border-[#bccfcd] bg-[#dce8e5] px-4 py-3 text-sm font-medium text-[var(--ms-primary-hover)]">Práctica próximamente</button>
-                  <p className="mt-3 text-center text-xs text-[var(--ms-muted)]">Vista previa; actividad aún no disponible.</p>
+                  <button type="button" onClick={() => setSection("Ejercicios")} className="w-full rounded-lg bg-[var(--ms-primary)] px-4 py-3 text-sm font-medium text-white hover:bg-[var(--ms-primary-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ms-primary)]">Consultar ejercicios</button>
+                  <p className="mt-3 text-center text-xs text-[var(--ms-muted)]">La resolución de actividades aún no está disponible.</p>
                 </div>
               </section>
             </div>
@@ -198,6 +201,7 @@ export default function Home() {
             </div>
 
             <p className="mt-5 text-xs leading-5 text-[var(--ms-muted)]">Esta demostración no representa el progreso de una cuenta real.</p>
+            </>}
           </div>
         </section>
       </div>
