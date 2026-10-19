@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { getStudentAccess } from "@/lib/auth/student";
 import { authCookieOptions, getSupabaseConfig } from "@/lib/supabase/config";
 
 export async function updateSession(request: NextRequest) {
@@ -26,12 +27,23 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  // Refresh before rendering. Authorization is checked again in the page/action.
   try {
     await supabase.auth.getClaims();
   } catch {
-    // An unavailable Auth service must never become an authorization bypass.
-    // The server guard below will deny access if identity cannot be verified.
+  }
+
+  if (request.nextUrl.pathname === "/") {
+    const access = await getStudentAccess(supabase);
+    if (access.status !== "authorized") {
+      const destination = request.nextUrl.clone();
+      destination.pathname = "/login";
+      destination.search = "";
+      if (access.status === "forbidden") destination.searchParams.set("motivo", "sin-acceso");
+      if (access.status === "unavailable") destination.searchParams.set("motivo", "servicio-no-disponible");
+      const redirect = NextResponse.redirect(destination);
+      response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
+      response = redirect;
+    }
   }
 
   response.headers.set("Cache-Control", "private, no-store, max-age=0, must-revalidate");

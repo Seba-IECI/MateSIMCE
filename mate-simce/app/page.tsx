@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { LogoutButton } from "@/components/auth/logout-button";
 import {
   BarChart3, BookOpenCheck, BrainCircuit, Check, ChevronRight, Clock3,
   Compass, FileText, House, Menu, MessageCircleQuestion, Sigma, Target, X,
@@ -16,7 +16,6 @@ type Topic = {
   icon: typeof Sigma;
 };
 
-// Existing demonstration values; these are not a student's academic records.
 const topics: Topic[] = [
   { name: "Números", key: "numeros", description: "Potencias, raíces y proporcionalidad", completed: 8, total: 12, icon: Sigma },
   { name: "Geometría", key: "geometria", description: "Áreas, perímetros y semejanza", completed: 5, total: 12, icon: Compass },
@@ -91,7 +90,7 @@ export default function Home() {
               </div>
               <div className="flex items-center gap-4">
                 <span className="hidden text-xs text-[var(--ms-muted)] md:inline">Demostración</span>
-                <Link href="/login" className="inline-flex h-9 items-center justify-center rounded-lg bg-[var(--ms-primary)] px-4 text-xs font-medium text-white transition-colors hover:bg-[var(--ms-primary-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ms-primary)]">Iniciar sesión</Link>
+                <LogoutButton />
               </div>
             </div>
           </header>

@@ -14,8 +14,6 @@ export async function createClient({ writableCookies = false } = {}) {
     cookies: {
       getAll: () => cookieStore.getAll(),
       setAll(cookiesToSet) {
-        // Server Components read cookies; Proxy persists their token refreshes.
-        // Actions and Route Handlers opt in so write errors are not swallowed.
         if (!writableCookies) return;
         cookiesToSet.forEach(({ name, value, options }) => {
           cookieStore.set(name, value, options);
