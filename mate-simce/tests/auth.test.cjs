@@ -7,7 +7,7 @@ const ts = require("typescript");
 
 // Exercise the production modules in memory with isolated Supabase/Next adapters.
 // No test creates users, contacts Supabase, or reads real credentials.
-function load(file, mocks = {}) {
+function load(file, mocks = {}, globals = {}) {
   const source = readFileSync(join(__dirname, "..", file), "utf8");
   const { outputText } = ts.transpileModule(source, {
     compilerOptions: {
@@ -18,7 +18,7 @@ function load(file, mocks = {}) {
   });
   const testModule = { exports: {} };
   const execute = runInNewContext(`(function(require, module, exports) { ${outputText}\n })`, {
-    URL, FormData, Headers,
+    URL, FormData, Headers, ...globals,
   });
   execute((name) => {
     if (name === "server-only") return {};
@@ -211,20 +211,22 @@ for (const options of [{ active: false }, { isStudent: false }, { noProfile: tru
 
 function nextResponse() {
   return class NextResponse extends Response {
-    static redirect(url, status) {
+    static redirect(url, status = 307) {
       return new this(null, { status, headers: { Location: url.toString() } });
     }
-    static next() {
-      const response = new this();
+    constructor(body, init) {
+      super(body, init);
       const values = new Map();
-      response.cookies = {
+      this.cookies = {
         getAll: () => [...values.values()],
         set(name, value, options) {
           const cookie = typeof name === "object" ? name : { name, value, ...options };
           values.set(cookie.name, cookie);
         },
       };
-      return response;
+    }
+    static next() {
+      return new this();
     }
   };
 }
@@ -292,11 +294,12 @@ test("logout preserves the browser's loopback host despite NextURL normalization
 
 test("Proxy forwards refreshed chunks to both the request and response, without caching", async () => {
   const cookies = new Map();
-  const request = { cookies: {
+  const request = { nextUrl: { pathname: "/login" }, cookies: {
     getAll: () => [...cookies].map(([name, value]) => ({ name, value })),
     set: (name, value) => cookies.set(name, value),
   } };
   const { updateSession } = load("lib/supabase/proxy.ts", {
+    "@/lib/auth/student": { getStudentAccess },
     "next/server": { NextResponse: nextResponse() },
     "@/lib/supabase/config": {
       getSupabaseConfig: () => ({ url: "https://example.supabase.co", key: "public-test-key" }),
@@ -368,3 +371,120 @@ for (const [status, destination] of [
     await assert.rejects(page(), (error) => error.message === `redirect:${destination}`);
   });
 }
+
+test("the legacy student route redirects authorized students to home", async () => {
+  const { default: page } = load("app/alumno/page.tsx", {
+    "next/navigation": { redirect(url) { throw new Error(`redirect:${url}`); } },
+    "@/lib/auth/student": { getStudentAccess },
+    "@/lib/supabase/server": { async createClient() { return client().supabase; } },
+  });
+  await assert.rejects(page(), (error) => error.message === "redirect:/");
+});
+
+function navigationProxy(options = {}) {
+  const { supabase, calls } = client(options);
+  const { updateSession } = load("lib/supabase/proxy.ts", {
+    "next/server": { NextResponse: nextResponse() },
+    "@/lib/auth/student": { getStudentAccess },
+    "@/lib/supabase/config": {
+      getSupabaseConfig: () => ({ url: "https://example.supabase.co", key: "public-test-key" }),
+      authCookieOptions: { path: "/", sameSite: "lax" },
+    },
+    "@supabase/ssr": {
+      createServerClient(_url, _key, adapter) {
+        supabase.auth.getClaims = async () => {
+          adapter.cookies.setAll([{ name: "test-refresh", value: "test-only", options: { path: "/" } }], {});
+        };
+        return supabase;
+      },
+    },
+  });
+  const { NextRequest } = require("next/server");
+  return {
+    calls,
+    request: (path = "/") => updateSession(new NextRequest(`http://192.168.1.8:3000${path}`)),
+  };
+}
+
+for (const [name, options, destination] of [
+  ["no session", { noUser: true }, "/login"],
+  ["invalid session", { authError: {} }, "/login"],
+  ["another role", { isStudent: false }, "/login?motivo=sin-acceso"],
+  ["inactive profile", { active: false }, "/login?motivo=sin-acceso"],
+  ["missing profile", { noProfile: true }, "/login?motivo=sin-acceso"],
+  ["unavailable authorization", { roleError: {} }, "/login?motivo=servicio-no-disponible"],
+]) {
+  test(`home rejects ${name} on the server before rendering`, async () => {
+    const fixture = navigationProxy(options);
+    const response = await fixture.request("/?discard=this");
+    assert.equal(response.status, 307);
+    assert.equal(response.headers.get("location"), `http://192.168.1.8:3000${destination}`);
+    assert.match(response.headers.get("cache-control"), /private.*no-store/);
+    assert.equal(response.cookies.getAll().length, 1);
+    // The login request must proceed to the page rather than loop in Proxy.
+    const loginResponse = await fixture.request(destination);
+    assert.equal(loginResponse.status, 200);
+    assert.equal(loginResponse.headers.get("location"), null);
+  });
+}
+
+test("home permits only a verified active student and rechecks after logout", async () => {
+  const options = {};
+  const fixture = navigationProxy(options);
+  const response = await fixture.request();
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("location"), null);
+  assert.ok(fixture.calls.some(([name]) => name === "getUser"));
+  assert.ok(fixture.calls.some(([name]) => name === "rpc"));
+  options.noUser = true;
+  const afterLogout = await fixture.request();
+  assert.equal(afterLogout.status, 307);
+  assert.match(afterLogout.headers.get("location"), /\/login$/);
+});
+
+test("the proxy matcher includes the exact home route", () => {
+  const { config } = load("proxy.ts", { "@/lib/supabase/proxy": {} });
+  assert.ok(config.matcher.includes("/"));
+});
+
+for (const [name, options, shouldRedirect] of [
+  ["active student", {}, true],
+  ["no session", { noUser: true }, false],
+  ["another role", { isStudent: false }, false],
+  ["inactive student", { active: false }, false],
+  ["unavailable authorization", { roleError: {} }, false],
+]) {
+  test(`login navigation for ${name} does not create a redirect loop`, async () => {
+    const { default: page } = load("app/login/page.tsx", {
+      "react/jsx-runtime": { jsx: () => ({}), jsxs: () => ({}) },
+      "next/link": {},
+      "next/navigation": { redirect(url) { throw new Error(`redirect:${url}`); } },
+      "lucide-react": {},
+      "@/components/auth/login-form": {},
+      "@/lib/auth/student": { getStudentAccess },
+      "@/lib/supabase/server": { async createClient() { return client(options).supabase; } },
+    });
+    const render = () => page({ searchParams: Promise.resolve({}) });
+    if (shouldRedirect) await assert.rejects(render(), (error) => error.message === "redirect:/");
+    else await assert.doesNotReject(render());
+  });
+}
+
+test("a successful form discards client state and navigates directly to home", () => {
+  let reset = false;
+  let destination;
+  const { LoginForm } = load("components/auth/login-form.tsx", {
+    "react": {
+      useActionState: () => [{ success: true, message: null }, () => {}, false],
+      useRef: () => ({ current: { reset() { reset = true; } } }),
+      useEffect: (effect) => effect(),
+    },
+    "react/jsx-runtime": { jsx: () => ({}), jsxs: () => ({}) },
+    "lucide-react": {},
+    "@/app/login/actions": { login: () => {} },
+    "@/components/ui/button": {},
+  }, { window: { location: { replace(url) { destination = url; } } } });
+  LoginForm({});
+  assert.equal(reset, true);
+  assert.equal(destination, "/");
+});

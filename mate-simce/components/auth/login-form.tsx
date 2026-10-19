@@ -16,8 +16,7 @@ export function LoginForm({ notice }: { notice?: string }) {
   useEffect(() => {
     if (state.success) {
       formRef.current?.reset();
-      // A document navigation discards the previous user's client/router state.
-      window.location.replace("/alumno");
+      window.location.replace("/");
     }
   }, [state.success]);
 

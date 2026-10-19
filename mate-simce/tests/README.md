@@ -22,12 +22,13 @@ El import `shadcn/tailwind.css` requiere la versión 4.21.0 fijada en el proyect
 
 Utilizar exclusivamente cuentas existentes y autorizadas. No crear usuarios en producción para verificar esta implementación.
 
-1. Abrir `/alumno` sin sesión: debe redirigir a `/login` sin mostrar datos.
-2. Iniciar sesión con un alumno activo. Debe aparecer su nombre en `/alumno` y persistir el acceso tras recargar.
+1. Abrir `/` y `/alumno` sin sesión: deben redirigir a `/login` sin mostrar la portada protegida.
+2. Iniciar sesión con un alumno activo. Debe llegar a `/` y persistir el acceso tras recargar; abrir `/login` o `/alumno` con esa sesión debe redirigir a `/`.
 3. Comprobar contraseña incorrecta: mensaje genérico y sin acceso nuevo.
 4. Comprobar cuentas de prueba de otro rol, inactivas o sin perfil: acceso rechazado. No desactivar cuentas reales para probar.
-5. Cerrar sesión: regresar a `/login`, comprobar que se eliminan las cookies de este proyecto y que `/alumno` vuelve a redirigir.
-6. Probar Atrás/Adelante y el cambio de estudiante en un dispositivo compartido: no debe recuperarse el nombre anterior.
+5. Cerrar sesión desde la portada: regresar a `/login`, comprobar que se eliminan las cookies de este proyecto y que `/` y `/alumno` vuelven a redirigir.
+6. Repetir el flujo en `http://localhost:3000` y `http://192.168.1.8:3000`. El WebSocket `/_next/hmr` debe conectar sin bloqueo de origen y el formulario debe salir del estado de carga ante errores.
+7. Probar Atrás/Adelante y el cambio de estudiante en un dispositivo compartido. La portada conserva exclusivamente datos de demostración.
 
 La autorización requiere lectura del propio perfil (`id`, `nombre`, `activo`) y ejecución de la función auditada `usuario_tiene_rol(text[])` con el JWT del usuario. Si los permisos remotos no lo permiten, se rechaza el acceso; la aplicación no utiliza una clave privilegiada como alternativa.
 

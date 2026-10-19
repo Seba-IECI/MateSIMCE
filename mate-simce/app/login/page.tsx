@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { BrainCircuit, LockKeyhole } from "lucide-react";
 
 import { LoginForm } from "@/components/auth/login-form";
+import { getStudentAccess } from "@/lib/auth/student";
+import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Iniciar sesión | MateSIMCE" };
 export const dynamic = "force-dynamic";
@@ -15,8 +18,14 @@ const notices: Record<string, string> = {
 };
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
+  const access = await getStudentAccess(await createClient());
+  if (access.status === "authorized") redirect("/");
+
   const { motivo } = await searchParams;
-  const notice = typeof motivo === "string" && Object.hasOwn(notices, motivo) ? notices[motivo] : undefined;
+  const notice = typeof motivo === "string" && Object.hasOwn(notices, motivo) ? notices[motivo]
+    : access.status === "forbidden" ? notices["sin-acceso"]
+    : access.status === "unavailable" ? notices["servicio-no-disponible"]
+    : undefined;
 
   return (
     <main className="matesimce-view flex min-h-screen items-center justify-center px-6 py-10 sm:px-10">
