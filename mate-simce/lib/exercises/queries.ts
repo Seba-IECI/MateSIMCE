@@ -94,6 +94,19 @@ export async function listTopics(): Promise<ContentResult<ExerciseTopic[]>> {
   );
 }
 
+export async function getCurrentCourse(): Promise<ContentResult<{
+  id: string; name: string; level: string; description: string;
+}>> {
+  return read(
+    (supabase, courseId) => supabase.from("cursos").select("id,nombre,nivel,descripcion")
+      .eq("id", courseId).eq("activo", true).eq("nivel", "2_medio").maybeSingle(),
+    (data) => {
+      const item = row(data);
+      return { id: text(item.id), name: text(item.nombre), level: text(item.nivel), description: text(item.descripcion) };
+    },
+  );
+}
+
 export async function listExercises(topicId: string, page = 1): Promise<ContentResult<ExercisePage>> {
   if (typeof topicId !== "string" || !uuid.test(topicId) || !Number.isInteger(page) || page < 1 || page > 1000) {
     return { status: "invalid" };

@@ -9,7 +9,15 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:backend": "vitest run tests/unit/backend.test.ts",
+    "test:http": "vitest run --config vitest.http.config.mts --reporter=verbose",
+    "test:e2e": "cypress run --browser electron",
+    "cypress:open": "cypress open --e2e --browser electron",
+    "test:e2e:types": "tsc --project cypress/tsconfig.json --noEmit",
+    "test:node": "node --test tests/auth.test.cjs tests/exercises.test.cjs"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.76",
@@ -22,7 +30,7 @@
     "cn": "^0.3.0",
     "katex": "^0.18.7",
     "lucide-react": "^1.47.0",
-    "next": "^16.4.0",
+    "next": "16.4.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-katex": "3.1.0",
@@ -32,12 +40,16 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/supertest": "^7.2.1",
+    "cypress": "16.2.0",
     "eslint": "^9",
-    "eslint-config-next": "16.4.0",
+    "eslint-config-next": "16.4.1",
+    "supertest": "^7.3.1",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^5.0.5"
   }
 }
