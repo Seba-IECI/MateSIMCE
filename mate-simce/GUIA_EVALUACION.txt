@@ -1,0 +1,96 @@
+MateSIMCE — Guía breve de evaluación, 27 de octubre de 2026
+Verificado el 24 de octubre: Node 22.22.2, Next.js 16.4.1, Cypress 16.2.0.
+
+1. ABRIR EL PROYECTO
+En VS Code: Archivo > Abrir carpeta > seleccionar la carpeta mate-simce
+dentro de Tesis/MateSIMCE. Abrir Terminal > Nueva terminal (PowerShell).
+Los comandos siguientes se ejecutan desde esa carpeta, donde está package.json.
+
+2. PREPARACIÓN
+La cuenta adulta exclusiva de pruebas debe estar configurada localmente en
+.env.test.local mediante MATESIMCE_TEST_EMAIL y MATESIMCE_TEST_PASSWORD.
+No mostrar ese archivo durante la evaluación ni copiar secretos a las pruebas.
+El archivo está ignorado por Git. Se requiere conexión a Supabase y contenido
+curricular activo. Las pruebas no ejecutan SQL ni publican ejercicios.
+
+3. TERMINAL 1 — INICIAR NEXT.JS Y MANTENERLO ACTIVO
+npm.cmd run dev -- --hostname 127.0.0.1 --port 3100
+Esperar el mensaje Ready. Dirección: http://127.0.0.1:3100
+Si ya existe un servidor propio en ese puerto, utilizarlo; no iniciar otro.
+
+4. TERMINAL 2 — UNITARIAS VITEST
+npm.cmd run test:backend
+Resultado esperado: U1, U2, U3 y U4 aprobadas (4 pruebas).
+Las funciones son reales; solo las dependencias externas se simulan.
+
+5. TERMINAL 2 — INTEGRACIONES HTTP CON SUPERTEST Y VITEST
+npm.cmd run test:http
+Resultado esperado: I1, I2, I3 e I4 aprobadas (4 pruebas).
+El servidor debe estar activo. Se usan HTTP real y una sesión Supabase real.
+Sin credenciales solo se comprueba el rechazo sin sesión: eso NO demuestra
+las lecturas autenticadas. Revisar los mensajes del runner.
+
+6. CYPRESS CON INTERFAZ GRÁFICA
+$env:ELECTRON_RUN_AS_NODE = $null
+npm.cmd run cypress:open
+Seleccionar authentication.cy.ts para E1 y exercise-catalog.cy.ts para E2.
+El arranque gráfico fija E2E y Electron; si aparece un paso de inicio, confirmar
+ese navegador. Cada archivo inicia sesión de forma independiente.
+No abrir .env.test.local ni mostrar los valores de configuración secretos.
+
+7. CYPRESS DESDE TERMINAL — EJECUTA E1 Y E2
+$env:ELECTRON_RUN_AS_NODE = $null
+npm.cmd run test:e2e
+Resultado esperado: 2 pruebas aprobadas, sin omitidas. No hay esperas fijas,
+sesiones simuladas ni contenido ficticio. Vídeo y capturas automáticas están
+desactivados para proteger la cuenta de prueba.
+
+8. EXPLICACIÓN DE LOS DIEZ CASOS
+U1 getStudentAccess: autoriza la identidad verificada de un alumno activo
+con rol alumno. Comprueba que se consulta su propio perfil y el RPC de rol.
+U2 login: rechaza un correo inválido antes de crear el cliente de Auth.
+U3 listExercises: rechaza la página cero antes de consultar Supabase.
+U4 getExercise: devuelve el detalle público y descarta soluciones privadas.
+I1 GET /api/cursos/actual: verifica 401 sin sesión y 200 para el curso de II medio.
+I2 GET /api/temas: verifica 401 y la respuesta JSON autenticada de temas.
+I3 GET /api/ejercicios: verifica 401, página inválida 400 y listado paginado 200.
+I4 GET /api/ejercicios/[id]: verifica 401 y 404 autenticado para un UUID inexistente
+si no se configuró MATESIMCE_TEST_EXERCISE_ID. Un 404 NO prueba detalle positivo.
+E1: formulario real de login, dashboard, recarga conservando sesión, logout
+y rechazo al intentar abrir otra vez la portada sin sesión.
+E2: login independiente, temas reales, selección y listado. Si hay contenido,
+abre detalle y vuelve. Si todos los temas están vacíos, los verifica y vuelve
+a Inicio, indicando que el detalle positivo sigue PENDIENTE.
+
+9. VERIFICACIONES ADICIONALES COMPROBADAS
+npm.cmd run lint
+npx.cmd --no-install tsc --noEmit
+npm.cmd run test:e2e:types
+npm.cmd run build
+npm.cmd run test:node
+Resultado registrado: todas correctas; 73 pruebas de autenticación y catálogo
+aprobadas. Las pruebas del banco privado quedan fuera de este commit público.
+El build con Next.js 16.4.1 ya no mostró el aviso de seguridad de 16.4.0.
+
+10. PROBLEMAS COMUNES
+- npm.ps1 bloqueado: usar npm.cmd, como muestran todos los comandos.
+- ECONNREFUSED: iniciar Next.js en 127.0.0.1:3100 y esperar Ready.
+- Puerto ocupado: no iniciar un segundo servidor; detener solo el propio con Ctrl+C.
+- Cypress muestra bad option --smoke-test o --ping: ejecutar la línea que limpia
+  ELECTRON_RUN_AS_NODE en esa terminal y repetir. No cambia Windows globalmente.
+- Cuenta no configurada: revisar las dos variables en mate-simce/.env.test.local,
+  no en la carpeta padre; nunca compartir sus valores.
+- Fallo de Auth o consultas: comprobar Internet, cuenta activa y rol alumno;
+  no modificar RLS ni desactivar seguridad para conseguir resultados verdes.
+- Cypress informa que el catálogo está vacío: es el estado real verificado;
+  no es una prueba fallida. El detalle positivo requiere contenido publicado
+  mediante una intervención autorizada posterior, no desde estas pruebas.
+- Electron puede emitir una advertencia de deprecación en Cypress 16.2.0;
+  esta versión y su navegador fueron comprobados; no actualizar antes de evaluar.
+- En desarrollo pueden aparecer avisos de scroll/hidratación cuando Cypress
+  ajusta el desplazamiento del documento; no se silenciaron errores de aplicación.
+
+ESTADO FINAL REGISTRADO
+U1–U4: 4/4. I1–I4: 4/4 (I4 con 404, detalle positivo pendiente).
+E1–E2: 2/2, navegador Electron real; E2 con todos los temas consultados vacíos.
+No se ejecutó el seed, no se publicó contenido ni se modificó Supabase/RLS.

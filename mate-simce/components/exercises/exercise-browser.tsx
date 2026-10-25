@@ -125,7 +125,7 @@ export function ExerciseBrowser() {
   const detail = view.detail;
 
   return (
-    <div className="space-y-5" aria-busy={view.loading}>
+    <div className="space-y-5" aria-busy={view.loading} data-cy="exercise-browser">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Ejercicios de matemática</h1>
         <p className="mt-2 text-sm leading-6 text-[var(--ms-muted)]">Explora los temas disponibles y consulta sus ejercicios publicados.</p>
@@ -141,7 +141,7 @@ export function ExerciseBrowser() {
         {!view.exerciseId && view.loaded && view.topics.length > 0 && <section className={card} aria-labelledby="content-selection-title">
           <h2 id="content-selection-title" className="text-base font-semibold">Contenidos de 2.º medio</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Temas disponibles">
-            {view.topics.map((item) => <button type="button" key={item.id} disabled={view.loading} aria-pressed={view.topicId === item.id}
+            {view.topics.map((item) => <button type="button" key={item.id} disabled={view.loading} aria-pressed={view.topicId === item.id} data-cy="exercise-topic"
               onClick={() => selectTopic(item.id)} className={"rounded-lg border p-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ms-primary)] disabled:opacity-60 "
                 + (view.topicId === item.id ? "border-[var(--ms-primary)] bg-[var(--ms-tint)]" : "border-[var(--ms-border)] hover:bg-[var(--ms-background)]")}>
               <span className="text-[11px] text-[var(--ms-primary-hover)]">{categories[item.category] ?? "Contenido matemático"}</span>
@@ -172,7 +172,7 @@ export function ExerciseBrowser() {
                 <p className="mt-2 text-xs leading-5 text-[var(--ms-muted)]">Dificultad {difficultyLabels[exercise.difficulty].toLowerCase()} · Desafío {challengeLabels[exercise.challenge].toLowerCase()}
                   {exercise.estimatedSeconds !== null && <> · {Math.ceil(exercise.estimatedSeconds / 60)} min aprox.</>}</p>
               </div>
-              <Button type="button" className={primary} disabled={view.loading} onClick={() => openExercise(exercise.id)}>Ver ejercicio</Button>
+              <Button type="button" className={primary} disabled={view.loading} onClick={() => openExercise(exercise.id)} data-cy="exercise-open">Ver ejercicio</Button>
             </li>)}
           </ul>}
           {(view.page > 1 || view.listing.hasNext) && <div className="mt-4 flex items-center justify-between gap-3 border-t border-[var(--ms-border)] pt-4">
@@ -188,7 +188,7 @@ export function ExerciseBrowser() {
           <h2 id="exercise-detail-title" className="mt-2 text-xl font-semibold"><MathText text={detail.title} /></h2>
           <p className="mt-3 text-xs leading-5 text-[var(--ms-muted)]">Dificultad {difficultyLabels[detail.difficulty].toLowerCase()} · Desafío {challengeLabels[detail.challenge].toLowerCase()}
             {detail.estimatedSeconds !== null && <> · {Math.ceil(detail.estimatedSeconds / 60)} min aprox.</>}</p>
-          <div className="mt-6 max-w-3xl text-base leading-8"><MathText text={detail.statement} /></div>
+          <div className="mt-6 max-w-3xl text-base leading-8" data-cy="exercise-statement"><MathText text={detail.statement} /></div>
           {detail.instructions && <section className="mt-5 rounded-lg bg-[var(--ms-tint)] p-4">
             <h3 className="text-sm font-medium">Instrucciones</h3>
             <div className="mt-2 text-sm leading-7 text-[var(--ms-muted)]"><MathText text={detail.instructions} /></div>

@@ -1,4 +1,55 @@
-# Verificación del acceso de estudiantes
+# Pruebas del proyecto
+
+Para la evaluación del 27 de octubre, consultar `GUIA_EVALUACION.txt`: comandos comprobados, diez casos y limitaciones. El 24 de octubre se ejecutaron U1–U4, I1–I4 y E1–E2 con Next.js 16.4.1; todos pasaron. E2 consultó los temas reales vacíos: el detalle positivo sigue pendiente, al igual que I4 con contenido publicado. Cypress 16.2.0 usa una configuración TypeScript separada y la cuenta adulta exclusiva de pruebas confirmada por el responsable. No se ejecutó SQL ni se publicó contenido.
+
+## Pruebas unitarias con Vitest
+
+### Evaluación: backend y HTTP real
+
+Desde `mate-simce/`, ejecutar `npm.cmd run test:backend` para U1–U4. Importan funciones reales y simulan solo dependencias externas; no conectan a Supabase.
+
+Para I1–I4, abrir dos terminales PowerShell:
+
+```powershell
+# Terminal 1: servidor real Next.js
+npm.cmd run dev -- --hostname 127.0.0.1 --port 3100
+```
+
+```powershell
+# Terminal 2: peticiones reales mediante Supertest + Vitest
+npm.cmd run test:http
+```
+
+Sin credenciales, los cuatro casos solo comprueban rechazo HTTP 401 y el listado también valida el error 400 de página cero. Esto NO acredita lecturas autenticadas.
+
+Para probarlas, configurar manualmente `MATESIMCE_TEST_EMAIL` y `MATESIMCE_TEST_PASSWORD` en `.env.test.local` (ignorado por Git), con una cuenta de alumno activa y autorizada. La suite inicia una sesión real mediante Supabase SSR, conserva cookies solo en memoria y cierra esa sesión al terminar. No imprime credenciales. Requiere acceso de red a Supabase; no usa `service_role`, SQL ni inserciones académicas.
+
+Opcional: `MATESIMCE_TEST_TOPIC_ID` fija un tema activo conocido. `MATESIMCE_TEST_EXERCISE_ID` fija un ejercicio publicado para probar detalle 200; sin él, I4 verifica 404 para un UUID reservado de prueba y deja explícitamente pendiente el detalle positivo. Un listado vacío puede ser correcto, pero no demuestra visualización de ejercicios publicados. Nunca se publican datos desde estas pruebas.
+
+`MATESIMCE_TEST_BASE_URL` permite otro puerto local. Los endpoints son `/api/cursos/actual`, `/api/temas`, `/api/ejercicios?temaId=UUID&page=1` y `/api/ejercicios/UUID`. No son Server Actions y no dependen del matcher del proxy. Sus respuestas no se almacenan en caché compartida.
+
+Resultado real del 22 de octubre de 2026: U1–U4 aprobadas; I1–I4 aprobadas contra Next.js y Supabase reales con cuenta autorizada, incluyendo los cuatro rechazos sin sesión. I4 comprobó 404; NO se probó detalle positivo de un ejercicio publicado. También pasaron las nueve unitarias totales, las 112 pruebas anteriores, ESLint y TypeScript. El build finalizó con salida 0 tras repetir el comando por un aviso de seguridad de Next.js 16.4.0; el aviso requiere revisión separada, no se actualizaron dependencias de producción. Las ejecuciones iniciales restringidas fallaron por acceso de red; la ejecución autenticada final necesitó red tanto en el servidor como en el runner. No se ejecutó SQL ni se cargó el seed.
+
+Ejecutar desde `mate-simce/`, con Node.js 22.22.2 y los tipos de Node 22:
+
+```powershell
+npm.cmd test
+npm.cmd run test:watch
+npm.cmd test -- tests/unit/utils.test.ts
+npm.cmd run test:node
+```
+
+`npm.cmd test` ejecuta Vitest una vez; `test:watch` mantiene la observación de cambios. `vitest.config.mts` configura el entorno Node y el alias `@/`, y limita Vitest a `tests/unit/`. Instalar Vitest no genera automáticamente este archivo de configuración.
+
+`tests/unit/utils.test.ts` comprueba la utilidad real `cn` de `lib/utils.ts`: composición, condiciones y conflictos de clases Tailwind. Sustituye el ejemplo de bcrypt, cuyo helper no existe en el proyecto; no se añade autenticación propia.
+
+`npm.cmd run test:node` conserva el runner `node:test` para las 73 pruebas existentes de autenticación y catálogo. Son pruebas locales con adaptadores; este comando no ejecuta SQL ni conecta a PostgreSQL o Supabase. El commit público no depende de las pruebas privadas del banco.
+
+No se requiere PostgreSQL local para el MVP. El banco y sus comprobaciones se mantienen localmente, fuera del repositorio público; no son necesarios para ejecutar las pruebas de evaluación.
+
+Los comandos se definen en `scripts` de `package.json`, no en `package-lock.json`. Vitest es una dependencia de desarrollo. Si se necesita reinstalar, utilizar `npm.cmd install` sin `--force`; el lockfile se actualiza mediante npm.
+
+## Verificación del acceso de estudiantes
 
 Ejecutar desde `mate-simce/` con Node.js 22. En PowerShell puede utilizarse `npm.cmd` si la política local bloquea `npm.ps1`.
 
@@ -16,7 +67,7 @@ node tests/check-browser-secrets.cjs
 
 El comando con `auth-eslint.config.mjs` comprueba variables sin uso y tipos `any` explícitos en los archivos de autenticación; es opcional y no sustituye `npm.cmd run lint`. El lint general conserva las reglas de Next.js y TypeScript, con permisos explícitos para los imports CommonJS de los runners `.cjs` y sus módulos de prueba.
 
-El import `shadcn/tailwind.css` requiere la versión 4.21.0 fijada en el proyecto. `eslint-config-next` está alineado con Next.js 16.4.0. Se mantiene Tailwind CSS 4 y se utiliza `react-katex` 3.1.0, compatible con React 19. El análisis de credenciales debe ejecutarse después de un build completo.
+El import `shadcn/tailwind.css` requiere la versión 4.21.0 fijada en el proyecto. `eslint-config-next` está alineado con Next.js 16.4.1. Se mantiene Tailwind CSS 4 y se utiliza `react-katex` 3.1.0, compatible con React 19. El análisis de credenciales debe ejecutarse después de un build completo.
 
 ## Prueba real pendiente
 
