@@ -29,6 +29,13 @@ export type ExercisePage = {
   hasNext: boolean;
 };
 
+export type ExerciseFeedback = {
+  exerciseId: string;
+  selectedIndex: number;
+  correct: boolean;
+  explanation: string;
+};
+
 export type ContentResult<T> =
   | { status: "ok"; data: T }
   | { status: "unauthenticated" | "forbidden" | "unavailable" | "invalid" | "not_found" | "course_unavailable" | "course_ambiguous" | "error" };

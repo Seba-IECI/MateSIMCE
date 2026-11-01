@@ -126,7 +126,10 @@ test("course resolution works with a different installation UUID and ignores cli
   const { queries, calls } = fixture({ tables: {
     cursos: [otherCourse], temas: [{ ...topic, curso_id: otherId, curso: otherCourse }],
   } });
-  const { getTopicsAction } = load("app/exercises-actions.ts", { "@/lib/exercises/queries": queries });
+  const { getTopicsAction } = load("app/exercises-actions.ts", {
+    "@/lib/exercises/queries": queries,
+    "@/lib/exercises/correction": { checkExerciseAnswer() { throw new Error("Unexpected correction request"); } },
+  });
   const result = await getTopicsAction(courseId);
   assert.equal(result.status, "ok");
   assert.equal(result.data[0].id, topicId);
@@ -268,6 +271,7 @@ function ui(actions) {
   const effects = [];
   const { ExerciseBrowser } = load("components/exercises/exercise-browser.tsx", {
     react: {
+      startTransition(action) { return action(); },
       useState(initial) {
         const index = cursor++;
         if (!(index in hooks)) hooks[index] = initial;
@@ -316,6 +320,55 @@ function actions(queries) {
     getExercisesAction: queries.listExercises, getExerciseAction: queries.getExercise };
 }
 const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+test("simulated practice UI requires a selection, waits for the server and clears feedback on return", async () => {
+  let finish;
+  const submitted = [];
+  const queries = fixture({ tables: { ejercicios: [{ ...exercise, opciones: ["6", "8", "9", "16"] }] } }).queries;
+  const app = ui({ ...actions(queries), checkExerciseAnswerAction(id, index) {
+    submitted.push([id, index]);
+    return new Promise((resolve) => { finish = resolve; });
+  } });
+  app.render(); await flush();
+  await nodes(app.render()).find((n) => n.type === "button" && content(n).includes("Tema de prueba")).props.onClick();
+  await nodes(app.render()).find((n) => n.type === "button" && content(n) === "Ver ejercicio").props.onClick();
+  const check = () => nodes(app.render()).find((n) => n.props["data-cy"] === "exercise-check");
+  await check().props.onClick();
+  assert.match(content(app.render()), /Selecciona una alternativa antes/);
+  assert.equal(submitted.length, 0);
+  nodes(app.render()).filter((n) => n.type === "input")[1].props.onChange();
+  const pending = check().props.onClick();
+  assert.equal(check().props.disabled, true);
+  assert.match(content(app.render()), /Comprobando/);
+  assert.deepEqual(submitted, [[exerciseId, 1]]);
+  finish({ status: "ok", data: { exerciseId, selectedIndex: 1, correct: true, explanation: "$2^3=8$." } });
+  await pending;
+  assert.match(content(app.render()), /Respuesta correcta/);
+  assert.ok(nodes(app.render()).some((n) => n.props["data-cy"] === "exercise-feedback"));
+  nodes(app.render()).find((n) => n.type === "button" && content(n).includes("Volver al listado")).props.onClick();
+  assert.doesNotMatch(content(app.render()), /Respuesta correcta|Respuesta comprobada/);
+});
+
+test("simulated practice UI releases the button on failure and renders incorrect-answer feedback", async () => {
+  let fail = true;
+  const queries = fixture({ tables: { ejercicios: [{ ...exercise, opciones: ["6", "8", "9", "16"] }] } }).queries;
+  const app = ui({ ...actions(queries), async checkExerciseAnswerAction() {
+    if (fail) throw new Error("PRIVATE NETWORK");
+    return { status: "ok", data: { exerciseId, selectedIndex: 0, correct: false, explanation: "$2^3=8$." } };
+  } });
+  app.render(); await flush();
+  await nodes(app.render()).find((n) => n.type === "button" && content(n).includes("Tema de prueba")).props.onClick();
+  await nodes(app.render()).find((n) => n.type === "button" && content(n) === "Ver ejercicio").props.onClick();
+  nodes(app.render()).find((n) => n.type === "input").props.onChange();
+  const check = () => nodes(app.render()).find((n) => n.props["data-cy"] === "exercise-check");
+  await check().props.onClick();
+  assert.equal(check().props.disabled, false);
+  assert.match(content(app.render()), /No pudimos conectar/);
+  assert.doesNotMatch(content(app.render()), /PRIVATE NETWORK/);
+  fail = false;
+  await check().props.onClick();
+  assert.match(content(app.render()), /Respuesta incorrecta/);
+});
 
 test("simulated UI loads topics automatically without a course selector and opens a read-only detail", async () => {
   const app = ui(actions(fixture().queries));
