@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { ArrowLeft, BookOpenCheck, LoaderCircle } from "lucide-react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 
-import { getExerciseAction, getExercisesAction, getTopicsAction } from "@/app/exercises-actions";
+import { checkExerciseAnswerAction, getExerciseAction, getExercisesAction, getTopicsAction } from "@/app/exercises-actions";
 import { Button } from "@/components/ui/button";
-import type { ContentResult, ExerciseDetail, ExercisePage, ExerciseTopic } from "@/lib/exercises/types";
+import type { ContentResult, ExerciseDetail, ExerciseFeedback, ExercisePage, ExerciseTopic } from "@/lib/exercises/types";
 
 type Failure = Exclude<ContentResult<never>["status"], "ok">;
 type View = {
@@ -22,11 +22,16 @@ type View = {
   loaded: boolean;
   imageFailed: boolean;
   error: Failure | null;
+  selectedChoice: number | null;
+  checking: boolean;
+  feedback: ExerciseFeedback | null;
+  answerError: string | null;
 };
 
 const initialView: View = {
   topics: [], topicId: "", exerciseId: "", listing: null, detail: null,
   page: 1, loading: true, loaded: false, imageFailed: false, error: null,
+  selectedChoice: null, checking: false, feedback: null, answerError: null,
 };
 const card = "rounded-xl border border-[var(--ms-border)] bg-white p-5";
 const primary = "bg-[var(--ms-primary)] text-white hover:bg-[var(--ms-primary-hover)]";
@@ -88,7 +93,8 @@ export function ExerciseBrowser() {
     finish: (data: T) => Partial<View>,
   ) {
     const id = ++sequence.current;
-    setView((current) => ({ ...current, ...start, loading: true, error: null }));
+    setView((current) => ({ ...current, ...start, loading: true, error: null,
+      selectedChoice: null, checking: false, feedback: null, answerError: null }));
     try {
       const result = await action();
       if (id !== sequence.current) return;
@@ -111,8 +117,33 @@ export function ExerciseBrowser() {
   }, (detail) => ({ detail }));
   const backToList = () => {
     sequence.current += 1;
-    setView((current) => ({ ...current, exerciseId: "", detail: null, error: null, loading: false }));
+    setView((current) => ({ ...current, exerciseId: "", detail: null, error: null, loading: false,
+      selectedChoice: null, checking: false, feedback: null, answerError: null }));
   };
+  async function checkAnswer() {
+    if (!view.detail || view.checking || view.feedback) return;
+    if (view.selectedChoice === null) {
+      setView((current) => ({ ...current, answerError: "Selecciona una alternativa antes de comprobar tu respuesta." }));
+      return;
+    }
+    const id = ++sequence.current;
+    setView((current) => ({ ...current, checking: true, answerError: null }));
+    try {
+      const result = await checkExerciseAnswerAction(view.detail.id, view.selectedChoice);
+      if (id !== sequence.current) return;
+      if (result.status === "ok") {
+        setView((current) => ({ ...current, checking: false, feedback: result.data }));
+      } else if (result.status === "unauthenticated" || result.status === "forbidden" || result.status === "not_found") {
+        setView((current) => ({ ...current, checking: false, detail: null, error: result.status }));
+      } else {
+        setView((current) => ({ ...current, checking: false,
+          answerError: "No pudimos comprobar la respuesta. Inténtalo nuevamente; si el problema continúa, contacta a tu docente." }));
+      }
+    } catch {
+      if (id === sequence.current) setView((current) => ({ ...current, checking: false,
+        answerError: "No pudimos conectar para comprobar la respuesta. Inténtalo nuevamente." }));
+    }
+  }
   const retry = () => {
     if (view.error === "course_unavailable" || view.error === "course_ambiguous") return loadTopics();
     if (view.exerciseId) return openExercise(view.exerciseId);
@@ -123,9 +154,11 @@ export function ExerciseBrowser() {
   const courseUnavailable = view.error === "course_unavailable" || view.error === "course_ambiguous";
   const topic = view.topics.find((item) => item.id === view.topicId);
   const detail = view.detail;
+  const canAnswer = detail?.responseType === "opcion_multiple" && detail.choices?.length === 4
+    && detail.choices.every((choice) => choice.trim()) && new Set(detail.choices).size === 4;
 
   return (
-    <div className="space-y-5" aria-busy={view.loading} data-cy="exercise-browser">
+    <div className="space-y-5" aria-busy={view.loading || view.checking} data-cy="exercise-browser">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Ejercicios de matemática</h1>
         <p className="mt-2 text-sm leading-6 text-[var(--ms-muted)]">Explora los temas disponibles y consulta sus ejercicios publicados.</p>
@@ -198,11 +231,36 @@ export function ExerciseBrowser() {
           {(detail.imageUnavailable || view.imageFailed) && <p className="mt-5 text-sm text-[var(--ms-muted)]">La imagen de apoyo no está disponible.</p>}
           {detail.responseType === "opcion_multiple" && <section className="mt-6" aria-labelledby="exercise-choices-title">
             <h3 id="exercise-choices-title" className="text-sm font-medium">Alternativas</h3>
-            {detail.choices ? <ol className="mt-3 space-y-3">{detail.choices.map((choice, index) => <li key={index} className="flex gap-3 rounded-lg border border-[var(--ms-border)] p-4 text-sm leading-6">
-              <span className="font-medium text-[var(--ms-primary-hover)]">{index + 1}.</span><MathText text={choice} />
-            </li>)}</ol> : <p className="mt-3 text-sm leading-6 text-[var(--ms-muted)]">Las alternativas de este ejercicio aún no están disponibles para consulta.</p>}
+            {detail.choices ? <fieldset disabled={view.checking || Boolean(view.feedback)} className="mt-3">
+              <legend className="sr-only">Selecciona una alternativa</legend>
+              <ol className="space-y-3">{detail.choices.map((choice, index) => <li key={index}>
+                <label className={"flex gap-3 rounded-lg border p-4 text-sm leading-6 "
+                  + (view.selectedChoice === index ? "border-[var(--ms-primary)] bg-[var(--ms-tint)]" : "border-[var(--ms-border)]")
+                  + (canAnswer ? " cursor-pointer" : "")}>
+                  {canAnswer && <input type="radio" name="exercise-choice" value={index} checked={view.selectedChoice === index}
+                    className="mt-1 size-4 shrink-0 accent-[var(--ms-primary)]" aria-describedby={view.answerError ? "answer-error" : undefined}
+                    onChange={() => setView((current) => ({ ...current, selectedChoice: index, answerError: null }))} />}
+                  <span className="font-medium text-[var(--ms-primary-hover)]">{index + 1}.</span><MathText text={choice} />
+                </label>
+              </li>)}</ol>
+            </fieldset> : <p className="mt-3 text-sm leading-6 text-[var(--ms-muted)]">Las alternativas de este ejercicio aún no están disponibles para consulta.</p>}
           </section>}
-          <p className="mt-6 border-t border-[var(--ms-border)] pt-4 text-xs leading-5 text-[var(--ms-muted)]">Vista de consulta. La resolución y el envío de respuestas todavía no están disponibles.</p>
+          {canAnswer ? <div className="mt-6 border-t border-[var(--ms-border)] pt-4">
+            {view.answerError && <p id="answer-error" role="alert" className="mb-3 text-sm text-[#8c3f34]">{view.answerError}</p>}
+            <Button type="button" className={primary} disabled={view.checking || Boolean(view.feedback)}
+              onClick={() => startTransition(checkAnswer)} data-cy="exercise-check">
+              {view.checking && <LoaderCircle size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+              {view.checking ? "Comprobando…" : view.feedback ? "Respuesta comprobada" : "Comprobar respuesta"}
+            </Button>
+            {view.checking && <p role="status" className="mt-3 text-sm text-[var(--ms-muted)]">Estamos comprobando tu respuesta.</p>}
+            {view.feedback && <section role="status" aria-live="polite" aria-labelledby="answer-feedback-title" data-cy="exercise-feedback"
+              className="mt-5 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-tint)] p-5">
+              <h3 id="answer-feedback-title" className="font-semibold">{view.feedback.correct ? "Respuesta correcta" : "Respuesta incorrecta"}</h3>
+              <p className="mt-2 text-sm text-[var(--ms-muted)]">Revisa el desarrollo y luego vuelve al listado para continuar practicando.</p>
+              <div className="mt-4 text-sm leading-8"><MathText text={view.feedback.explanation} /></div>
+            </section>}
+            <p className="mt-4 text-xs leading-5 text-[var(--ms-muted)]">Esta práctica todavía no guarda respuestas ni actualiza tu progreso.</p>
+          </div> : <p className="mt-6 border-t border-[var(--ms-border)] pt-4 text-xs leading-5 text-[var(--ms-muted)]">Vista de consulta. La corrección de este formato todavía no está disponible.</p>}
         </article>}
       </>}
     </div>

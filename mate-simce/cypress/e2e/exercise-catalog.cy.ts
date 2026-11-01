@@ -4,8 +4,6 @@ const browser = '[data-cy="exercise-browser"]';
 const topic = '[data-cy="exercise-topic"]';
 const openExercise = '[data-cy="exercise-open"]';
 
-// Branch only after the real UI finishes loading. Inspect every topic until
-// finding content; if all are empty, explicitly record the untested detail.
 function inspectTopic(index: number, count: number) {
   cy.get(topic).eq(index).click().should("have.attr", "aria-pressed", "true");
   cy.get(browser).should("have.attr", "aria-busy", "false");
@@ -22,13 +20,21 @@ function inspectTopic(index: number, count: number) {
               .each(($choice) => { expect($choice.text().trim()).not.to.eq(""); });
           }
         });
+        cy.get('[data-cy="exercise-check"]').click();
+        cy.contains('[role="alert"]', "Selecciona una alternativa antes de comprobar tu respuesta.").should("be.visible");
+        cy.get('input[name="exercise-choice"]').should("have.length", 4).first().check();
+        cy.get('[data-cy="exercise-check"]').click();
+        cy.get('[data-cy="exercise-feedback"]', { timeout: 30000 }).should("be.visible");
+        cy.get("#answer-feedback-title").invoke("text").should("match", /^Respuesta (correcta|incorrecta)$/);
+        cy.get('[data-cy="exercise-feedback"] .katex').should("exist");
+        cy.get('[data-cy="exercise-check"]').should("be.disabled").and("contain.text", "Respuesta comprobada");
         cy.contains("button", "Volver al listado").click();
         cy.get('[aria-labelledby="exercise-list-title"]').should("be.visible");
-        cy.task("report", "E2: detalle positivo real visitado; título, enunciado y alternativas cuando corresponden.");
+        cy.task("report", "E2: detalle y corrección reales; selección requerida, retroalimentación del servidor y explicación KaTeX. No se presupone cuál alternativa es correcta.");
       });
     } else {
       cy.contains('[role="status"]', "Todavía no hay ejercicios publicados para este tema").should("be.visible");
-      cy.get(topic).should("have.length", count); // Themes remain available above the empty listing.
+      cy.get(topic).should("have.length", count); 
       if (index + 1 < count) inspectTopic(index + 1, count);
       else cy.task("report", "E2: todos los temas consultados están vacíos. Detalle positivo PENDIENTE; no se usaron mocks.");
     }
