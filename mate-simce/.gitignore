@@ -43,3 +43,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Material de ensayos sin publicar y soluciones privadas
+/private/
+/references/simce/Ensayo_SIMCE_2_Medio_50_Preguntas_y_Solucionario.pdf
