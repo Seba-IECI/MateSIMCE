@@ -6,9 +6,10 @@ import { ArrowLeft, BookOpenCheck, LoaderCircle } from "lucide-react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 
-import { checkExerciseAnswerAction, getExerciseAction, getExercisesAction, getTopicsAction } from "@/app/exercises-actions";
+import { checkExerciseAnswerAction, getExerciseAction, getExercisesAction, getPracticeDiagnosisAction, getTopicsAction } from "@/app/exercises-actions";
 import { Button } from "@/components/ui/button";
-import type { ContentResult, ExerciseDetail, ExerciseFeedback, ExercisePage, ExerciseTopic } from "@/lib/exercises/types";
+import type { ContentResult, ExerciseFeedback, ExercisePage, ExerciseTopic, PracticeExercise } from "@/lib/exercises/types";
+import type { AxisDiagnosis } from "@/lib/exercises/progress";
 
 type Failure = Exclude<ContentResult<never>["status"], "ok">;
 type View = {
@@ -16,7 +17,7 @@ type View = {
   topicId: string;
   exerciseId: string;
   listing: ExercisePage | null;
-  detail: ExerciseDetail | null;
+  detail: PracticeExercise | null;
   page: number;
   loading: boolean;
   loaded: boolean;
@@ -26,12 +27,16 @@ type View = {
   checking: boolean;
   feedback: ExerciseFeedback | null;
   answerError: string | null;
+  diagnosis: AxisDiagnosis[] | null;
+  diagnosisLoading: boolean;
+  diagnosisError: boolean;
 };
 
 const initialView: View = {
   topics: [], topicId: "", exerciseId: "", listing: null, detail: null,
   page: 1, loading: true, loaded: false, imageFailed: false, error: null,
   selectedChoice: null, checking: false, feedback: null, answerError: null,
+  diagnosis: null, diagnosisLoading: true, diagnosisError: false,
 };
 const card = "rounded-xl border border-[var(--ms-border)] bg-white p-5";
 const primary = "bg-[var(--ms-primary)] text-white hover:bg-[var(--ms-primary-hover)]";
@@ -73,9 +78,18 @@ function MathText({ text }: { text: string }) {
 export function ExerciseBrowser() {
   const [view, setView] = useState<View>(initialView);
   const sequence = useRef(0);
+  const diagnosisSequence = useRef(0);
 
   useEffect(() => {
     const id = ++sequence.current;
+    const diagnosisId = ++diagnosisSequence.current;
+    getPracticeDiagnosisAction().then((result) => {
+      if (diagnosisId !== diagnosisSequence.current) return;
+      setView((current) => ({ ...current, diagnosisLoading: false, diagnosisError: result.status !== "ok",
+        diagnosis: result.status === "ok" ? result.data : null }));
+    }).catch(() => {
+      if (diagnosisId === diagnosisSequence.current) setView((current) => ({ ...current, diagnosisLoading: false, diagnosisError: true }));
+    });
     getTopicsAction().then((result) => {
       if (id !== sequence.current) return;
       setView((current) => result.status === "ok"
@@ -84,8 +98,21 @@ export function ExerciseBrowser() {
     }).catch(() => {
       if (id === sequence.current) setView((current) => ({ ...current, error: "error", loading: false }));
     });
-    return () => { sequence.current += 1; };
+    return () => { sequence.current += 1; diagnosisSequence.current += 1; };
   }, []);
+
+  async function refreshDiagnosis() {
+    const id = ++diagnosisSequence.current;
+    setView((current) => ({ ...current, diagnosisLoading: true, diagnosisError: false }));
+    try {
+      const result = await getPracticeDiagnosisAction();
+      if (id !== diagnosisSequence.current) return;
+      setView((current) => ({ ...current, diagnosisLoading: false, diagnosisError: result.status !== "ok",
+        diagnosis: result.status === "ok" ? result.data : null }));
+    } catch {
+      if (id === diagnosisSequence.current) setView((current) => ({ ...current, diagnosisLoading: false, diagnosisError: true, diagnosis: null }));
+    }
+  }
 
   async function request<T>(
     action: () => Promise<ContentResult<T>>,
@@ -129,7 +156,9 @@ export function ExerciseBrowser() {
     const id = ++sequence.current;
     setView((current) => ({ ...current, checking: true, answerError: null }));
     try {
-      const result = await checkExerciseAnswerAction(view.detail.id, view.selectedChoice);
+      const result = await checkExerciseAnswerAction(view.detail.id, view.selectedChoice, view.detail.attemptId);
+      // A save can complete while the student returns to the list; refresh the summary in either case.
+      if (result.status === "ok") void refreshDiagnosis();
       if (id !== sequence.current) return;
       if (result.status === "ok") {
         setView((current) => ({ ...current, checking: false, feedback: result.data }));
@@ -171,10 +200,27 @@ export function ExerciseBrowser() {
       </div>}
 
       {!denied && !courseUnavailable && <>
+        <section className={card} aria-labelledby="practice-diagnosis-title" data-cy="practice-diagnosis" aria-busy={view.diagnosisLoading}>
+          <h2 id="practice-diagnosis-title" className="text-base font-semibold">Resumen de tu práctica</h2>
+          <p className="mt-2 text-xs leading-5 text-[var(--ms-muted)]">Intentos corregidos en los ejercicios disponibles de 2.º medio. Reabrir un ejercicio permite un intento nuevo; reenviar el mismo intento no vuelve a contarlo.</p>
+          {view.diagnosisLoading && <p role="status" className="mt-3 text-sm text-[var(--ms-muted)]">Actualizando resumen…</p>}
+          {view.diagnosisError && <div role="alert" className="mt-3 text-sm text-[#8c3f34]">
+            <p>No pudimos consultar tu resumen. Puedes seguir practicando y volver a intentarlo.</p>
+            <Button type="button" variant="outline" className="mt-2" onClick={refreshDiagnosis} disabled={view.diagnosisLoading}>Actualizar resumen</Button>
+          </div>}
+          {view.diagnosis && <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{view.diagnosis.map((axis) => <div key={axis.category}
+            className="rounded-lg border border-[var(--ms-border)] p-4" data-cy="practice-axis" data-category={axis.category}>
+            <h3 className="text-sm font-medium">{axis.name}</h3>
+            <p className="mt-3 text-sm"><span data-cy="practice-attempts">{axis.attempts}</span> intentos · {axis.correct} aciertos</p>
+            <p className="mt-2 font-semibold text-[var(--ms-primary-hover)]">{axis.accuracy === null ? "Sin intentos" : `${axis.accuracy} % de aciertos`}</p>
+            <p className="mt-3 text-xs leading-5 text-[var(--ms-muted)]">{axis.recommendation}</p>
+          </div>)}</div>}
+          <p className="mt-4 text-xs leading-5 text-[var(--ms-muted)]">Orientación básica de práctica; no equivale a un puntaje SIMCE ni a un diagnóstico completo del aprendizaje.</p>
+        </section>
         {!view.exerciseId && view.loaded && view.topics.length > 0 && <section className={card} aria-labelledby="content-selection-title">
           <h2 id="content-selection-title" className="text-base font-semibold">Contenidos de 2.º medio</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Temas disponibles">
-            {view.topics.map((item) => <button type="button" key={item.id} disabled={view.loading} aria-pressed={view.topicId === item.id} data-cy="exercise-topic"
+            {view.topics.map((item) => <button type="button" key={item.id} disabled={view.loading} aria-pressed={view.topicId === item.id} data-cy="exercise-topic" data-category={item.category}
               onClick={() => selectTopic(item.id)} className={"rounded-lg border p-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ms-primary)] disabled:opacity-60 "
                 + (view.topicId === item.id ? "border-[var(--ms-primary)] bg-[var(--ms-tint)]" : "border-[var(--ms-border)] hover:bg-[var(--ms-background)]")}>
               <span className="text-[11px] text-[var(--ms-primary-hover)]">{categories[item.category] ?? "Contenido matemático"}</span>
@@ -256,10 +302,10 @@ export function ExerciseBrowser() {
             {view.feedback && <section role="status" aria-live="polite" aria-labelledby="answer-feedback-title" data-cy="exercise-feedback"
               className="mt-5 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-tint)] p-5">
               <h3 id="answer-feedback-title" className="font-semibold">{view.feedback.correct ? "Respuesta correcta" : "Respuesta incorrecta"}</h3>
+              <p className="mt-2 text-sm font-medium">Tu respuesta quedó guardada.</p>
               <p className="mt-2 text-sm text-[var(--ms-muted)]">Revisa el desarrollo y luego vuelve al listado para continuar practicando.</p>
               <div className="mt-4 text-sm leading-8"><MathText text={view.feedback.explanation} /></div>
             </section>}
-            <p className="mt-4 text-xs leading-5 text-[var(--ms-muted)]">Esta práctica todavía no guarda respuestas ni actualiza tu progreso.</p>
           </div> : <p className="mt-6 border-t border-[var(--ms-border)] pt-4 text-xs leading-5 text-[var(--ms-muted)]">Vista de consulta. La corrección de este formato todavía no está disponible.</p>}
         </article>}
       </>}

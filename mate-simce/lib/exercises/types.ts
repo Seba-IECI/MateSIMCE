@@ -29,7 +29,10 @@ export type ExercisePage = {
   hasNext: boolean;
 };
 
+export type PracticeExercise = ExerciseDetail & { attemptId: string };
+
 export type ExerciseFeedback = {
+  attemptId: string;
   exerciseId: string;
   selectedIndex: number;
   correct: boolean;
