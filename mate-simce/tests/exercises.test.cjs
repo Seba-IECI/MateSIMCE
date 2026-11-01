@@ -127,7 +127,9 @@ test("course resolution works with a different installation UUID and ignores cli
     cursos: [otherCourse], temas: [{ ...topic, curso_id: otherId, curso: otherCourse }],
   } });
   const { getTopicsAction } = load("app/exercises-actions.ts", {
+    "node:crypto": { randomUUID: () => "55555555-5555-4555-8555-555555555555" },
     "@/lib/exercises/queries": queries,
+    "@/lib/exercises/progress": { getPracticeDiagnosis() { throw new Error("Unexpected diagnosis request"); } },
     "@/lib/exercises/correction": { checkExerciseAnswer() { throw new Error("Unexpected correction request"); } },
   });
   const result = await getTopicsAction(courseId);
@@ -288,7 +290,7 @@ function ui(actions) {
       return '<span class="katex">rendered math</span>';
     } } },
     "katex/dist/katex.min.css": {},
-    "@/app/exercises-actions": actions,
+    "@/app/exercises-actions": { getPracticeDiagnosisAction: async () => ({ status: "ok", data: [] }), ...actions },
     "@/components/ui/button": { Button: "button" },
   });
   function render() {
@@ -317,7 +319,10 @@ function content(node) {
 
 function actions(queries) {
   return { getTopicsAction: queries.listTopics,
-    getExercisesAction: queries.listExercises, getExerciseAction: queries.getExercise };
+    getExercisesAction: queries.listExercises, async getExerciseAction(id) {
+      const result = await queries.getExercise(id);
+      return result.status === "ok" ? { status: "ok", data: { ...result.data, attemptId: "55555555-5555-4555-8555-555555555555" } } : result;
+    } };
 }
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -325,8 +330,8 @@ test("simulated practice UI requires a selection, waits for the server and clear
   let finish;
   const submitted = [];
   const queries = fixture({ tables: { ejercicios: [{ ...exercise, opciones: ["6", "8", "9", "16"] }] } }).queries;
-  const app = ui({ ...actions(queries), checkExerciseAnswerAction(id, index) {
-    submitted.push([id, index]);
+  const app = ui({ ...actions(queries), checkExerciseAnswerAction(id, index, attemptId) {
+    submitted.push([id, index, attemptId]);
     return new Promise((resolve) => { finish = resolve; });
   } });
   app.render(); await flush();
@@ -340,7 +345,7 @@ test("simulated practice UI requires a selection, waits for the server and clear
   const pending = check().props.onClick();
   assert.equal(check().props.disabled, true);
   assert.match(content(app.render()), /Comprobando/);
-  assert.deepEqual(submitted, [[exerciseId, 1]]);
+  assert.deepEqual(submitted, [[exerciseId, 1, "55555555-5555-4555-8555-555555555555"]]);
   finish({ status: "ok", data: { exerciseId, selectedIndex: 1, correct: true, explanation: "$2^3=8$." } });
   await pending;
   assert.match(content(app.render()), /Respuesta correcta/);

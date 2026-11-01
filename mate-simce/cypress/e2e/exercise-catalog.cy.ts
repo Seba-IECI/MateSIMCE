@@ -10,6 +10,14 @@ function inspectTopic(index: number, count: number) {
   cy.get('[aria-labelledby="exercise-list-title"]').should("be.visible").then(($list) => {
     if ($list.find(openExercise).length > 0) {
       cy.get(openExercise).first().closest("li").find("h3").invoke("text").then((title) => {
+        let axisSelector = "";
+        let attemptsBefore = 0;
+        cy.get('[data-cy="practice-diagnosis"]').should("have.attr", "aria-busy", "false");
+        cy.get(topic).eq(index).invoke("attr", "data-category").then((category) => {
+          expect(category).to.be.oneOf(["numeros", "algebra_y_funciones", "geometria", "estadistica_y_probabilidades"]);
+          axisSelector = `[data-cy="practice-axis"][data-category="${category}"]`;
+          cy.get(axisSelector).find('[data-cy="practice-attempts"]').invoke("text").then((text) => { attemptsBefore = Number(text); });
+        });
         cy.get(openExercise).first().click();
         cy.get("#exercise-detail-title").should("have.text", title);
         cy.get('[data-cy="exercise-statement"]').should("be.visible").and("not.be.empty");
@@ -27,10 +35,17 @@ function inspectTopic(index: number, count: number) {
         cy.get('[data-cy="exercise-feedback"]', { timeout: 30000 }).should("be.visible");
         cy.get("#answer-feedback-title").invoke("text").should("match", /^Respuesta (correcta|incorrecta)$/);
         cy.get('[data-cy="exercise-feedback"] .katex').should("exist");
+        cy.contains('[data-cy="exercise-feedback"]', "Tu respuesta quedó guardada.").should("be.visible");
         cy.get('[data-cy="exercise-check"]').should("be.disabled").and("contain.text", "Respuesta comprobada");
         cy.contains("button", "Volver al listado").click();
         cy.get('[aria-labelledby="exercise-list-title"]').should("be.visible");
-        cy.task("report", "E2: detalle y corrección reales; selección requerida, retroalimentación del servidor y explicación KaTeX. No se presupone cuál alternativa es correcta.");
+        cy.get('[data-cy="practice-diagnosis"]').should("have.attr", "aria-busy", "false");
+        cy.then(() => { cy.get(axisSelector).find('[data-cy="practice-attempts"]').should("have.text", String(attemptsBefore + 1)); });
+        cy.reload();
+        cy.get('nav[aria-label="Navegación principal"]').contains("button", "Ejercicios").click();
+        cy.get('[data-cy="practice-diagnosis"]').should("have.attr", "aria-busy", "false");
+        cy.then(() => { cy.get(axisSelector).find('[data-cy="practice-attempts"]').should("have.text", String(attemptsBefore + 1)); });
+        cy.task("report", "E2: corrección, guardado y diagnóstico reales; exactamente un intento adicional, conservado tras recargar. Se registra un intento en la cuenta adulta de pruebas.");
       });
     } else {
       cy.contains('[role="status"]', "Todavía no hay ejercicios publicados para este tema").should("be.visible");
