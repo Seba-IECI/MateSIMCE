@@ -375,6 +375,56 @@ test("simulated practice UI releases the button on failure and renders incorrect
   assert.match(content(app.render()), /Respuesta incorrecta/);
 });
 
+test("simulated retry keeps the exercise, renews its attempt and ignores a late preceding response", async () => {
+  const queries = fixture({ tables: { ejercicios: [{ ...exercise, opciones: ["6", "8", "9", "16"] }] } }).queries;
+  const base = actions(queries);
+  const attemptIds = ["55555555-5555-4555-8555-555555555555", "66666666-6666-4666-8666-666666666666"];
+  const opened = [];
+  const submitted = [];
+  const finish = [];
+  const app = ui({ ...base, async getExerciseAction(id) {
+    const result = await base.getExerciseAction(id);
+    opened.push(id);
+    return { ...result, data: { ...result.data, attemptId: attemptIds[opened.length - 1] } };
+  }, checkExerciseAnswerAction(id, index, attemptId) {
+    submitted.push([id, index, attemptId]);
+    return new Promise((resolve) => finish.push(resolve));
+  } });
+  app.render(); await flush();
+  await nodes(app.render()).find((n) => n.type === "button" && content(n).includes("Tema de prueba")).props.onClick();
+  await nodes(app.render()).find((n) => n.type === "button" && content(n) === "Ver ejercicio").props.onClick();
+  const button = (name) => nodes(app.render()).find((n) => n.props["data-cy"] === name);
+  assert.equal(button("exercise-retry"), undefined);
+  nodes(app.render()).find((n) => n.type === "input").props.onChange();
+  // Simulate two sends of the same opening before React has committed its pending state.
+  const send = button("exercise-check").props.onClick;
+  const late = send();
+  const first = send();
+  const feedback = (attemptId, selectedIndex) => ({ status: "ok", data: {
+    exerciseId, attemptId, selectedIndex, correct: true, explanation: "PREVIOUS EXPLANATION",
+  } });
+  finish[1](feedback(attemptIds[0], 0)); await first;
+  assert.ok(button("exercise-retry"));
+  const retry = button("exercise-retry").props.onClick();
+  assert.match(content(app.render()), /Cargando contenido/);
+  await retry;
+  finish[0](feedback(attemptIds[0], 0)); await late;
+  assert.deepEqual(opened, [exerciseId, exerciseId]);
+  assert.equal(nodes(app.render()).find((n) => n.props.id === "exercise-detail-title") !== undefined, true);
+  assert.equal(button("exercise-feedback"), undefined);
+  assert.equal(button("exercise-retry"), undefined);
+  assert.doesNotMatch(content(app.render()), /PREVIOUS EXPLANATION/);
+  assert.ok(nodes(app.render()).filter((n) => n.type === "input").every((n) => !n.props.checked));
+  nodes(app.render()).filter((n) => n.type === "input")[1].props.onChange();
+  const second = button("exercise-check").props.onClick();
+  assert.deepEqual(submitted, [[exerciseId, 0, attemptIds[0]], [exerciseId, 0, attemptIds[0]], [exerciseId, 1, attemptIds[1]]]);
+  finish[2](feedback(attemptIds[1], 1)); await second;
+  assert.ok(button("exercise-feedback"));
+  nodes(app.render()).find((n) => n.type === "button" && content(n).includes("Volver al listado")).props.onClick();
+  assert.equal(button("exercise-feedback"), undefined);
+  assert.ok(nodes(app.render()).some((n) => n.props["aria-labelledby"] === "exercise-list-title"));
+});
+
 test("simulated UI loads topics automatically without a course selector and opens a read-only detail", async () => {
   const app = ui(actions(fixture().queries));
   assert.match(content(app.render()), /Cargando contenido/);

@@ -303,8 +303,10 @@ export function ExerciseBrowser() {
               className="mt-5 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-tint)] p-5">
               <h3 id="answer-feedback-title" className="font-semibold">{view.feedback.correct ? "Respuesta correcta" : "Respuesta incorrecta"}</h3>
               <p className="mt-2 text-sm font-medium">Tu respuesta quedó guardada.</p>
-              <p className="mt-2 text-sm text-[var(--ms-muted)]">Revisa el desarrollo y luego vuelve al listado para continuar practicando.</p>
+              <p className="mt-2 text-sm text-[var(--ms-muted)]">Revisa el desarrollo. Puedes volver a intentar este ejercicio o regresar al listado.</p>
               <div className="mt-4 text-sm leading-8"><MathText text={view.feedback.explanation} /></div>
+              <Button type="button" variant="outline" className="mt-4" disabled={view.loading || view.checking}
+                onClick={() => openExercise(detail.id)} data-cy="exercise-retry">Volver a intentar</Button>
             </section>}
           </div> : <p className="mt-6 border-t border-[var(--ms-border)] pt-4 text-xs leading-5 text-[var(--ms-muted)]">Vista de consulta. La corrección de este formato todavía no está disponible.</p>}
         </article>}
