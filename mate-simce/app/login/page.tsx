@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { BrainCircuit, LockKeyhole } from "lucide-react";
 
 import { LoginForm } from "@/components/auth/login-form";
+import { SignupForm } from "@/components/auth/signup-form";
 import { getStudentAccess } from "@/lib/auth/student";
 import { createClient } from "@/lib/supabase/server";
 
@@ -15,13 +16,16 @@ const notices: Record<string, string> = {
   "servicio-no-disponible": "No pudimos verificar tu acceso. Inténtalo nuevamente o contacta a tu docente.",
   "sesion-cerrada": "Cerraste sesión en este dispositivo.",
   "salida-local": "La sesión se eliminó de este dispositivo, pero no pudimos confirmar su cierre remoto.",
+  "confirmacion-invalida": "El enlace de confirmación no es válido o ya expiró. Si ya confirmaste tu correo, inicia sesión; de lo contrario, contacta a tu docente.",
+  "perfil-no-disponible": "Tu correo fue confirmado, pero no pudimos habilitar tu perfil de estudiante. Contacta a tu docente.",
 };
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const access = await getStudentAccess(await createClient());
   if (access.status === "authorized") redirect("/");
 
-  const { motivo } = await searchParams;
+  const { motivo, modo } = await searchParams;
+  const registering = modo === "registro";
   const notice = typeof motivo === "string" && Object.hasOwn(notices, motivo) ? notices[motivo]
     : access.status === "forbidden" ? notices["sin-acceso"]
     : access.status === "unavailable" ? notices["servicio-no-disponible"]
@@ -52,9 +56,12 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
 
         <section aria-labelledby="login-title" className="rounded-xl border border-[var(--ms-border)] bg-white p-7 shadow-[0_4px_20px_rgba(37,55,70,0.035)] sm:p-9">
           <p className="text-xs font-medium uppercase tracking-[0.1em] text-[var(--ms-muted)]">Acceso de estudiantes</p>
-          <h2 id="login-title" className="mt-3 text-2xl font-semibold tracking-tight">Inicia sesión</h2>
-          <p className="mt-3 text-sm leading-6 text-[var(--ms-muted)]">Ingresa con la cuenta que te proporcionó tu establecimiento.</p>
-          <LoginForm notice={notice} />
+          <h2 id="login-title" className="mt-3 text-2xl font-semibold tracking-tight">{registering ? "Crea tu cuenta" : "Inicia sesión"}</h2>
+          <p className="mt-3 text-sm leading-6 text-[var(--ms-muted)]">{registering ? "Regístrate como alumno para practicar matemática de 2.º medio." : "Ingresa con tu correo y contraseña para continuar practicando."}</p>
+          {registering ? <SignupForm /> : <>
+            <LoginForm notice={notice} />
+            <p className="mt-5 text-center text-sm text-[var(--ms-muted)]">¿No tienes cuenta? <Link href="/login?modo=registro" className="font-medium text-[var(--ms-primary)] underline underline-offset-4">Registrarse</Link></p>
+          </>}
           <p className="mt-6 flex items-start gap-2.5 border-t border-[var(--ms-border)] pt-5 text-xs leading-5 text-[var(--ms-muted)]">
             <LockKeyhole size={15} className="mt-0.5 shrink-0" aria-hidden="true" />
             En un equipo compartido, recuerda cerrar sesión al terminar.
