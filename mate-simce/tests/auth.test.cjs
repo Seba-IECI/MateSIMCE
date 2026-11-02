@@ -461,6 +461,7 @@ for (const [name, options, shouldRedirect] of [
       "next/navigation": { redirect(url) { throw new Error(`redirect:${url}`); } },
       "lucide-react": {},
       "@/components/auth/login-form": {},
+      "@/components/auth/signup-form": {},
       "@/lib/auth/student": { getStudentAccess },
       "@/lib/supabase/server": { async createClient() { return client(options).supabase; } },
     });
