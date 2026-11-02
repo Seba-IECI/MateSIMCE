@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { getStudentAccess } from "@/lib/auth/student";
+import { getLoginAccess } from "@/lib/auth/student";
 import { authCookieOptions, getSupabaseConfig } from "@/lib/supabase/config";
 
 export async function updateSession(request: NextRequest) {
@@ -33,10 +33,10 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (request.nextUrl.pathname === "/") {
-    const access = await getStudentAccess(supabase);
-    if (access.status !== "authorized") {
+    const access = await getLoginAccess(supabase);
+    if (access.status !== "authorized" || access.role === "administrador") {
       const destination = request.nextUrl.clone();
-      destination.pathname = "/login";
+      destination.pathname = access.status === "authorized" ? "/admin" : "/login";
       destination.search = "";
       if (access.status === "forbidden") destination.searchParams.set("motivo", "sin-acceso");
       if (access.status === "unavailable") destination.searchParams.set("motivo", "servicio-no-disponible");

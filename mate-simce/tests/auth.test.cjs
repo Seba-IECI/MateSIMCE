@@ -28,7 +28,7 @@ function load(file, mocks = {}, globals = {}) {
   return testModule.exports;
 }
 
-const { getStudentAccess } = load("lib/auth/student.ts");
+const { getStudentAccess, getLoginAccess } = load("lib/auth/student.ts");
 
 function client(options = {}) {
   const calls = [];
@@ -79,7 +79,8 @@ function client(options = {}) {
     },
     async rpc(name, args) {
       calls.push(["rpc", name, args]);
-      return { data: options.isStudent ?? true, error: options.roleError || null };
+      const permitted = args.roles_permitidos.includes("administrador") ? options.isAdmin ?? false : options.isStudent ?? true;
+      return { data: permitted, error: options.roleError || null };
     },
   };
   return { supabase, calls };
@@ -140,7 +141,7 @@ function loginModule(options = {}) {
   const { supabase, calls } = client(options);
   let clears = 0;
   const { login } = load("app/login/actions.ts", {
-    "@/lib/auth/student": { getStudentAccess },
+    "@/lib/auth/student": { getLoginAccess },
     "@/lib/supabase/server": {
       async createClient(settings) {
         assert.equal(settings.writableCookies, true);
@@ -175,7 +176,8 @@ test("successful login trims only email and never returns credentials", async ()
   const sent = fixture.calls.find(([name]) => name === "signInWithPassword")[1];
   assert.equal(sent.email, "student@example.test");
   assert.equal(sent.password, " a valid password ");
-  assert.deepEqual(Object.keys(result).sort(), ["message", "success"]);
+  assert.deepEqual(Object.keys(result).sort(), ["destination", "message", "success"]);
+  assert.equal(result.destination, "/");
 });
 
 test("login ignores roles submitted by the browser", async () => {
@@ -299,7 +301,7 @@ test("Proxy forwards refreshed chunks to both the request and response, without 
     set: (name, value) => cookies.set(name, value),
   } };
   const { updateSession } = load("lib/supabase/proxy.ts", {
-    "@/lib/auth/student": { getStudentAccess },
+    "@/lib/auth/student": { getLoginAccess },
     "next/server": { NextResponse: nextResponse() },
     "@/lib/supabase/config": {
       getSupabaseConfig: () => ({ url: "https://example.supabase.co", key: "public-test-key" }),
@@ -385,7 +387,7 @@ function navigationProxy(options = {}) {
   const { supabase, calls } = client(options);
   const { updateSession } = load("lib/supabase/proxy.ts", {
     "next/server": { NextResponse: nextResponse() },
-    "@/lib/auth/student": { getStudentAccess },
+    "@/lib/auth/student": { getLoginAccess },
     "@/lib/supabase/config": {
       getSupabaseConfig: () => ({ url: "https://example.supabase.co", key: "public-test-key" }),
       authCookieOptions: { path: "/", sameSite: "lax" },
@@ -442,13 +444,23 @@ test("home permits only a verified active student and rechecks after logout", as
   assert.match(afterLogout.headers.get("location"), /\/login$/);
 });
 
+test("home redirects a verified administrator to admin instead of rendering the student dashboard", async () => {
+  const fixture = navigationProxy({ isStudent: false, isAdmin: true });
+  const response = await fixture.request("/?next=https://other.example/");
+  assert.equal(response.status, 307);
+  assert.equal(response.headers.get("location"), "http://192.168.1.8:3000/admin");
+  assert.equal(response.cookies.getAll().length, 1);
+  assert.match(response.headers.get("cache-control"), /private.*no-store/);
+});
+
 test("the proxy matcher includes the exact home route", () => {
   const { config } = load("proxy.ts", { "@/lib/supabase/proxy": {} });
   assert.ok(config.matcher.includes("/"));
 });
 
-for (const [name, options, shouldRedirect] of [
+for (const [name, options, shouldRedirect, destination = "/"] of [
   ["active student", {}, true],
+  ["active administrator", { isStudent: false, isAdmin: true }, true, "/admin"],
   ["no session", { noUser: true }, false],
   ["another role", { isStudent: false }, false],
   ["inactive student", { active: false }, false],
@@ -462,11 +474,11 @@ for (const [name, options, shouldRedirect] of [
       "lucide-react": {},
       "@/components/auth/login-form": {},
       "@/components/auth/signup-form": {},
-      "@/lib/auth/student": { getStudentAccess },
+      "@/lib/auth/student": { getLoginAccess },
       "@/lib/supabase/server": { async createClient() { return client(options).supabase; } },
     });
     const render = () => page({ searchParams: Promise.resolve({}) });
-    if (shouldRedirect) await assert.rejects(render(), (error) => error.message === "redirect:/");
+    if (shouldRedirect) await assert.rejects(render(), (error) => error.message === `redirect:${destination}`);
     else await assert.doesNotReject(render());
   });
 }

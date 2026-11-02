@@ -16,9 +16,9 @@ export function LoginForm({ notice }: { notice?: string }) {
   useEffect(() => {
     if (state.success) {
       formRef.current?.reset();
-      window.location.replace("/");
+      window.location.replace(state.destination === "/admin" ? "/admin" : "/");
     }
-  }, [state.success]);
+  }, [state.success, state.destination]);
 
   return (
     <form ref={formRef} action={formAction} className="mt-7 space-y-5" aria-busy={pending}>

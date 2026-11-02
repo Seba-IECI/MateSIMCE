@@ -5,14 +5,14 @@ import { BrainCircuit, LockKeyhole } from "lucide-react";
 
 import { LoginForm } from "@/components/auth/login-form";
 import { SignupForm } from "@/components/auth/signup-form";
-import { getStudentAccess } from "@/lib/auth/student";
+import { getLoginAccess } from "@/lib/auth/student";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Iniciar sesión | MateSIMCE" };
 export const dynamic = "force-dynamic";
 
 const notices: Record<string, string> = {
-  "sin-acceso": "Esta cuenta no tiene acceso al espacio de estudiantes. Contacta a tu docente.",
+  "sin-acceso": "Esta cuenta no tiene acceso a MateSIMCE. Contacta a tu docente.",
   "servicio-no-disponible": "No pudimos verificar tu acceso. Inténtalo nuevamente o contacta a tu docente.",
   "sesion-cerrada": "Cerraste sesión en este dispositivo.",
   "salida-local": "La sesión se eliminó de este dispositivo, pero no pudimos confirmar su cierre remoto.",
@@ -21,8 +21,8 @@ const notices: Record<string, string> = {
 };
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
-  const access = await getStudentAccess(await createClient());
-  if (access.status === "authorized") redirect("/");
+  const access = await getLoginAccess(await createClient());
+  if (access.status === "authorized") redirect(access.role === "administrador" ? "/admin" : "/");
 
   const { motivo, modo } = await searchParams;
   const registering = modo === "registro";
@@ -55,7 +55,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
         </section>
 
         <section aria-labelledby="login-title" className="rounded-xl border border-[var(--ms-border)] bg-white p-7 shadow-[0_4px_20px_rgba(37,55,70,0.035)] sm:p-9">
-          <p className="text-xs font-medium uppercase tracking-[0.1em] text-[var(--ms-muted)]">Acceso de estudiantes</p>
+          <p className="text-xs font-medium uppercase tracking-[0.1em] text-[var(--ms-muted)]">Acceso a MateSIMCE</p>
           <h2 id="login-title" className="mt-3 text-2xl font-semibold tracking-tight">{registering ? "Crea tu cuenta" : "Inicia sesión"}</h2>
           <p className="mt-3 text-sm leading-6 text-[var(--ms-muted)]">{registering ? "Regístrate como alumno para practicar matemática de 2.º medio." : "Ingresa con tu correo y contraseña para continuar practicando."}</p>
           {registering ? <SignupForm /> : <>
