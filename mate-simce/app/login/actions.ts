@@ -1,10 +1,11 @@
 "use server";
 
-import { getStudentAccess } from "@/lib/auth/student";
+import { getLoginAccess } from "@/lib/auth/student";
 import { clearSessionCookies, createClient } from "@/lib/supabase/server";
 
 export type LoginState = {
   success: boolean;
+  destination?: "/" | "/admin";
   message: string | null;
   errors?: { email?: string; password?: string };
 };
@@ -37,7 +38,7 @@ export async function login(_previous: LoginState, formData: FormData): Promise<
       };
     }
 
-    const access = await getStudentAccess(supabase);
+    const access = await getLoginAccess(supabase);
     if (access.status !== "authorized") {
       try {
         await supabase.auth.signOut({ scope: "local" });
@@ -48,12 +49,12 @@ export async function login(_previous: LoginState, formData: FormData): Promise<
         success: false,
         message: access.status === "unavailable"
           ? "No pudimos verificar tu acceso. Inténtalo nuevamente o contacta a tu docente."
-          : "Esta cuenta no tiene acceso al espacio de estudiantes. Contacta a tu docente.",
+          : "Esta cuenta no tiene acceso a MateSIMCE. Contacta a tu docente.",
       };
     }
 
     // Never serialize credentials, tokens or database records to the form.
-    return { success: true, message: null };
+    return { success: true, message: null, destination: access.role === "administrador" ? "/admin" : "/" };
   } catch {
     try {
       await clearSessionCookies();
