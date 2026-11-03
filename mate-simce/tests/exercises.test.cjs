@@ -131,6 +131,7 @@ test("course resolution works with a different installation UUID and ignores cli
     "@/lib/exercises/queries": queries,
     "@/lib/exercises/progress": { getPracticeDiagnosis() { throw new Error("Unexpected diagnosis request"); } },
     "@/lib/exercises/correction": { checkExerciseAnswer() { throw new Error("Unexpected correction request"); } },
+    "@/lib/exercises/tutor": { getTutorFeedback() { throw new Error("Unexpected tutor request"); } },
   });
   const result = await getTopicsAction(courseId);
   assert.equal(result.status, "ok");
@@ -375,6 +376,47 @@ test("simulated practice UI releases the button on failure and renders incorrect
   assert.match(content(app.render()), /Respuesta incorrecta/);
 });
 
+test("simulated tutor unlocks after grading, caches each help type and handles failures without duplicate requests", async () => {
+  const attemptId = "55555555-5555-4555-8555-555555555555";
+  const queries = fixture({ tables: { ejercicios: [{ ...exercise, opciones: ["6", "8", "9", "16"] }] } }).queries;
+  const calls = [];
+  let resolve;
+  let reject;
+  const app = ui({ ...actions(queries), async checkExerciseAnswerAction() {
+    return { status: "ok", data: { attemptId, exerciseId, selectedIndex: 0, correct: false, explanation: "Verified procedure" } };
+  }, getTutorFeedbackAction(id, kind) {
+    calls.push([id, kind]);
+    return new Promise((yes, no) => { resolve = yes; reject = no; });
+  } });
+  const button = (id) => nodes(app.render()).find((n) => n.props["data-cy"] === id);
+  app.render(); await flush();
+  await nodes(app.render()).find((n) => n.type === "button" && content(n).includes("Tema de prueba")).props.onClick();
+  await nodes(app.render()).find((n) => n.type === "button" && content(n) === "Ver ejercicio").props.onClick();
+  assert.equal(button("exercise-tutor"), undefined);
+  nodes(app.render()).find((n) => n.type === "input").props.onChange();
+  await button("exercise-check").props.onClick();
+  assert.ok(button("exercise-tutor"));
+  const hintClick = button("tutor-hint").props.onClick;
+  const hint = hintClick(); await hintClick();
+  assert.deepEqual(calls, [[attemptId, "hint"]]);
+  assert.equal(button("tutor-hint").props.disabled, true);
+  resolve({ status: "ok", data: { attemptId, exerciseId, kind: "hint", title: "Hint", text: "Orientación $2^3$" } }); await hint;
+  assert.ok(nodes(button("tutor-response")).some((n) => n.props.dangerouslySetInnerHTML?.__html.includes('class="katex"')));
+  await button("tutor-hint").props.onClick();
+  assert.equal(calls.length, 1);
+  const error = button("tutor-error").props.onClick();
+  reject(new Error("PRIVATE NETWORK")); await error;
+  assert.match(content(app.render()), /No pudimos cargar la ayuda/);
+  assert.doesNotMatch(content(app.render()), /PRIVATE NETWORK/);
+  assert.equal(button("tutor-error").props.disabled, false);
+  const errorRetry = button("tutor-error").props.onClick();
+  resolve({ status: "ok", data: { attemptId, exerciseId, kind: "error", title: "Revisión", text: "Sin atribuir una causa no observada." } }); await errorRetry;
+  const procedure = button("tutor-procedure").props.onClick();
+  resolve({ status: "ok", data: { attemptId, exerciseId, kind: "procedure", title: "Procedimiento", text: "$2^3=8$" } }); await procedure;
+  assert.match(content(button("tutor-response")), /Procedimiento/);
+  assert.equal(calls.length, 4);
+});
+
 test("simulated retry keeps the exercise, renews its attempt and ignores a late preceding response", async () => {
   const queries = fixture({ tables: { ejercicios: [{ ...exercise, opciones: ["6", "8", "9", "16"] }] } }).queries;
   const base = actions(queries);
@@ -382,6 +424,7 @@ test("simulated retry keeps the exercise, renews its attempt and ignores a late 
   const opened = [];
   const submitted = [];
   const finish = [];
+  let finishTutor;
   const app = ui({ ...base, async getExerciseAction(id) {
     const result = await base.getExerciseAction(id);
     opened.push(id);
@@ -389,6 +432,8 @@ test("simulated retry keeps the exercise, renews its attempt and ignores a late 
   }, checkExerciseAnswerAction(id, index, attemptId) {
     submitted.push([id, index, attemptId]);
     return new Promise((resolve) => finish.push(resolve));
+  }, getTutorFeedbackAction() {
+    return new Promise((resolve) => { finishTutor = resolve; });
   } });
   app.render(); await flush();
   await nodes(app.render()).find((n) => n.type === "button" && content(n).includes("Tema de prueba")).props.onClick();
@@ -405,15 +450,19 @@ test("simulated retry keeps the exercise, renews its attempt and ignores a late 
   } });
   finish[1](feedback(attemptIds[0], 0)); await first;
   assert.ok(button("exercise-retry"));
+  const lateTutor = button("tutor-hint").props.onClick();
   const retry = button("exercise-retry").props.onClick();
   assert.match(content(app.render()), /Cargando contenido/);
   await retry;
   finish[0](feedback(attemptIds[0], 0)); await late;
+  finishTutor({ status: "ok", data: { attemptId: attemptIds[0], exerciseId, kind: "hint", title: "LATE_TUTOR", text: "LATE_TUTOR" } }); await lateTutor;
   assert.deepEqual(opened, [exerciseId, exerciseId]);
   assert.equal(nodes(app.render()).find((n) => n.props.id === "exercise-detail-title") !== undefined, true);
   assert.equal(button("exercise-feedback"), undefined);
   assert.equal(button("exercise-retry"), undefined);
   assert.doesNotMatch(content(app.render()), /PREVIOUS EXPLANATION/);
+  assert.doesNotMatch(content(app.render()), /LATE_TUTOR/);
+  assert.equal(button("exercise-tutor"), undefined);
   assert.ok(nodes(app.render()).filter((n) => n.type === "input").every((n) => !n.props.checked));
   nodes(app.render()).filter((n) => n.type === "input")[1].props.onChange();
   const second = button("exercise-check").props.onClick();

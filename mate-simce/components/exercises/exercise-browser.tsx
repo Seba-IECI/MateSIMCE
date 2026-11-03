@@ -6,9 +6,9 @@ import { ArrowLeft, BookOpenCheck, LoaderCircle } from "lucide-react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 
-import { checkExerciseAnswerAction, getExerciseAction, getExercisesAction, getPracticeDiagnosisAction, getTopicsAction } from "@/app/exercises-actions";
+import { checkExerciseAnswerAction, getExerciseAction, getExercisesAction, getPracticeDiagnosisAction, getTopicsAction, getTutorFeedbackAction } from "@/app/exercises-actions";
 import { Button } from "@/components/ui/button";
-import type { ContentResult, ExerciseFeedback, ExercisePage, ExerciseTopic, PracticeExercise } from "@/lib/exercises/types";
+import type { ContentResult, ExerciseFeedback, ExercisePage, ExerciseTopic, PracticeExercise, TutorFeedback, TutorHelpKind } from "@/lib/exercises/types";
 import type { AxisDiagnosis } from "@/lib/exercises/progress";
 
 type Failure = Exclude<ContentResult<never>["status"], "ok">;
@@ -27,6 +27,10 @@ type View = {
   checking: boolean;
   feedback: ExerciseFeedback | null;
   answerError: string | null;
+  tutorKind: TutorHelpKind | null;
+  tutorReplies: Partial<Record<TutorHelpKind, TutorFeedback>>;
+  tutorLoading: boolean;
+  tutorError: string | null;
   diagnosis: AxisDiagnosis[] | null;
   diagnosisLoading: boolean;
   diagnosisError: boolean;
@@ -36,6 +40,7 @@ const initialView: View = {
   topics: [], topicId: "", exerciseId: "", listing: null, detail: null,
   page: 1, loading: true, loaded: false, imageFailed: false, error: null,
   selectedChoice: null, checking: false, feedback: null, answerError: null,
+  tutorKind: null, tutorReplies: {}, tutorLoading: false, tutorError: null,
   diagnosis: null, diagnosisLoading: true, diagnosisError: false,
 };
 const card = "rounded-xl border border-[var(--ms-border)] bg-white p-5";
@@ -46,6 +51,11 @@ const categories: Record<string, string> = {
 };
 const difficultyLabels = { facil: "Fácil", media: "Media", dificil: "Difícil" };
 const challengeLabels = { inicial: "Inicial", intermedio: "Intermedio", avanzado: "Avanzado" };
+const tutorOptions: Array<{ kind: TutorHelpKind; label: string }> = [
+  { kind: "hint", label: "Dame una pista" },
+  { kind: "error", label: "Explica mi error" },
+  { kind: "procedure", label: "Muéstrame el procedimiento" },
+];
 const errorMessages: Record<Failure, string> = {
   unauthenticated: "Tu sesión ya no está disponible. Vuelve a iniciar sesión para continuar.",
   forbidden: "Esta cuenta no tiene acceso al espacio de estudiantes. Contacta a tu docente.",
@@ -79,6 +89,7 @@ export function ExerciseBrowser() {
   const [view, setView] = useState<View>(initialView);
   const sequence = useRef(0);
   const diagnosisSequence = useRef(0);
+  const tutorPending = useRef<number | null>(null);
 
   useEffect(() => {
     const id = ++sequence.current;
@@ -121,7 +132,8 @@ export function ExerciseBrowser() {
   ) {
     const id = ++sequence.current;
     setView((current) => ({ ...current, ...start, loading: true, error: null,
-      selectedChoice: null, checking: false, feedback: null, answerError: null }));
+      selectedChoice: null, checking: false, feedback: null, answerError: null,
+      tutorKind: null, tutorReplies: {}, tutorLoading: false, tutorError: null }));
     try {
       const result = await action();
       if (id !== sequence.current) return;
@@ -145,7 +157,8 @@ export function ExerciseBrowser() {
   const backToList = () => {
     sequence.current += 1;
     setView((current) => ({ ...current, exerciseId: "", detail: null, error: null, loading: false,
-      selectedChoice: null, checking: false, feedback: null, answerError: null }));
+      selectedChoice: null, checking: false, feedback: null, answerError: null,
+      tutorKind: null, tutorReplies: {}, tutorLoading: false, tutorError: null }));
   };
   async function checkAnswer() {
     if (!view.detail || view.checking || view.feedback) return;
@@ -173,6 +186,37 @@ export function ExerciseBrowser() {
         answerError: "No pudimos conectar para comprobar la respuesta. Inténtalo nuevamente." }));
     }
   }
+  async function askTutor(kind: TutorHelpKind) {
+    if (!view.detail || !view.feedback || view.feedback.attemptId !== view.detail.attemptId
+      || tutorPending.current === sequence.current) return;
+    if (view.tutorReplies[kind]) {
+      setView((current) => ({ ...current, tutorKind: kind, tutorError: null }));
+      return;
+    }
+    const id = sequence.current;
+    const attemptId = view.feedback.attemptId;
+    const exerciseId = view.detail.id;
+    tutorPending.current = id;
+    setView((current) => ({ ...current, tutorKind: kind, tutorLoading: true, tutorError: null }));
+    try {
+      const result = await getTutorFeedbackAction(attemptId, kind);
+      // Retry, navigation or unmount invalidates both the request and any cached help.
+      if (id !== sequence.current) return;
+      if (result.status === "ok" && result.data.attemptId === attemptId && result.data.exerciseId === exerciseId && result.data.kind === kind) {
+        setView((current) => ({ ...current, tutorLoading: false, tutorReplies: { ...current.tutorReplies, [kind]: result.data } }));
+      } else if (result.status === "unauthenticated" || result.status === "forbidden") {
+        setView((current) => ({ ...current, detail: null, feedback: null, error: result.status,
+          tutorLoading: false, tutorReplies: {}, tutorError: null }));
+      } else {
+        setView((current) => ({ ...current, tutorLoading: false, tutorError: "No hay orientación verificada disponible para este intento. Puedes volver a intentarlo o consultar a tu docente." }));
+      }
+    } catch {
+      if (id === sequence.current) setView((current) => ({ ...current, tutorLoading: false,
+        tutorError: "No pudimos cargar la ayuda. Inténtalo nuevamente." }));
+    } finally {
+      if (tutorPending.current === id) tutorPending.current = null;
+    }
+  }
   const retry = () => {
     if (view.error === "course_unavailable" || view.error === "course_ambiguous") return loadTopics();
     if (view.exerciseId) return openExercise(view.exerciseId);
@@ -183,11 +227,12 @@ export function ExerciseBrowser() {
   const courseUnavailable = view.error === "course_unavailable" || view.error === "course_ambiguous";
   const topic = view.topics.find((item) => item.id === view.topicId);
   const detail = view.detail;
+  const tutorReply = view.tutorKind ? view.tutorReplies[view.tutorKind] : undefined;
   const canAnswer = detail?.responseType === "opcion_multiple" && detail.choices?.length === 4
     && detail.choices.every((choice) => choice.trim()) && new Set(detail.choices).size === 4;
 
   return (
-    <div className="space-y-5" aria-busy={view.loading || view.checking} data-cy="exercise-browser">
+    <div className="space-y-5" aria-busy={view.loading || view.checking || view.tutorLoading} data-cy="exercise-browser">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Ejercicios de matemática</h1>
         <p className="mt-2 text-sm leading-6 text-[var(--ms-muted)]">Explora los temas disponibles y consulta sus ejercicios publicados.</p>
@@ -307,6 +352,22 @@ export function ExerciseBrowser() {
               <div className="mt-4 text-sm leading-8"><MathText text={view.feedback.explanation} /></div>
               <Button type="button" variant="outline" className="mt-4" disabled={view.loading || view.checking}
                 onClick={() => openExercise(detail.id)} data-cy="exercise-retry">Volver a intentar</Button>
+            </section>}
+            {view.feedback && <section className="mt-5 rounded-lg border border-[var(--ms-border)] p-5" aria-labelledby="exercise-tutor-title" data-cy="exercise-tutor" aria-busy={view.tutorLoading}>
+              <h3 id="exercise-tutor-title" className="font-semibold">Tutor MateSIMCE</h3>
+              <p className="mt-2 text-sm leading-6 text-[var(--ms-muted)]">Apoyo guiado con el contenido revisado de este ejercicio.</p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {tutorOptions.map(({ kind, label }) => <Button key={kind} type="button" variant="outline" disabled={view.tutorLoading}
+                  aria-pressed={view.tutorKind === kind} data-cy={`tutor-${kind}`}
+                  className={view.tutorKind === kind ? "border-[var(--ms-primary)] bg-[var(--ms-tint)] text-[var(--ms-primary-hover)]" : ""}
+                  onClick={() => startTransition(() => askTutor(kind))}>{label}</Button>)}
+              </div>
+              {view.tutorLoading && <p role="status" className="mt-4 text-sm text-[var(--ms-muted)]">Preparando la ayuda…</p>}
+              {view.tutorError && <p role="alert" className="mt-4 text-sm text-[#8c3f34]">{view.tutorError}</p>}
+              {!view.tutorLoading && !view.tutorError && tutorReply && <div className="mt-4 border-t border-[var(--ms-border)] pt-4" role="status" aria-live="polite" data-cy="tutor-response">
+                <h4 className="text-sm font-medium">{tutorReply.title}</h4>
+                <div className="mt-3 text-sm leading-8"><MathText text={tutorReply.text} /></div>
+              </div>}
             </section>}
           </div> : <p className="mt-6 border-t border-[var(--ms-border)] pt-4 text-xs leading-5 text-[var(--ms-muted)]">Vista de consulta. La corrección de este formato todavía no está disponible.</p>}
         </article>}

@@ -39,6 +39,17 @@ export type ExerciseFeedback = {
   explanation: string;
 };
 
+export type TutorHelpKind = "hint" | "error" | "procedure";
+
+// Provider-independent response. The private mathematical context stays on the server.
+export type TutorFeedback = {
+  attemptId: string;
+  exerciseId: string;
+  kind: TutorHelpKind;
+  title: string;
+  text: string;
+};
+
 export type ContentResult<T> =
   | { status: "ok"; data: T }
   | { status: "unauthenticated" | "forbidden" | "unavailable" | "invalid" | "not_found" | "course_unavailable" | "course_ambiguous" | "error" };
