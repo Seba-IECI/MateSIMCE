@@ -48,6 +48,9 @@ export type TutorFeedback = {
   kind: TutorHelpKind;
   title: string;
   text: string;
+  source?: "verified" | "gemini";
+  notice?: string;
+  verifiedProcedure?: string;
 };
 
 export type ContentResult<T> =

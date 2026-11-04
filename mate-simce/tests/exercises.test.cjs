@@ -267,7 +267,7 @@ for (const options of [{ error: { message: "private SQL details" } }, { throws: 
 
 // Minimal React adapters exercise the component's callbacks and states in memory.
 // These checks are not browser tests or remote RLS verification.
-function ui(actions) {
+function ui(actions, mathRenderer) {
   const hooks = [];
   let cursor = 0;
   let firstRender = true;
@@ -286,10 +286,10 @@ function ui(actions) {
     "react/jsx-runtime": { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
     "next/image": { default: "img" },
     "lucide-react": {},
-    katex: { default: { renderToString: (_text, options) => {
+    katex: { default: { renderToString: mathRenderer ?? ((_text, options) => {
       assert.equal(options.trust, false);
       return '<span class="katex">rendered math</span>';
-    } } },
+    }) } },
     "katex/dist/katex.min.css": {},
     "@/app/exercises-actions": { getPracticeDiagnosisAction: async () => ({ status: "ok", data: [] }), ...actions },
     "@/components/ui/button": { Button: "button" },
@@ -400,8 +400,11 @@ test("simulated tutor unlocks after grading, caches each help type and handles f
   const hint = hintClick(); await hintClick();
   assert.deepEqual(calls, [[attemptId, "hint"]]);
   assert.equal(button("tutor-hint").props.disabled, true);
-  resolve({ status: "ok", data: { attemptId, exerciseId, kind: "hint", title: "Hint", text: "Orientación $2^3$" } }); await hint;
+  resolve({ status: "ok", data: { attemptId, exerciseId, kind: "hint", title: "Hint", text: "Orientación $2^3$",
+    source: "verified", notice: "La generación con IA no está disponible." } }); await hint;
   assert.ok(nodes(button("tutor-response")).some((n) => n.props.dangerouslySetInnerHTML?.__html.includes('class="katex"')));
+  assert.match(content(button("tutor-response")), /IA no está disponible/);
+  assert.doesNotMatch(content(button("tutor-source")), /generada por Gemini/);
   await button("tutor-hint").props.onClick();
   assert.equal(calls.length, 1);
   const error = button("tutor-error").props.onClick();
@@ -412,9 +415,47 @@ test("simulated tutor unlocks after grading, caches each help type and handles f
   const errorRetry = button("tutor-error").props.onClick();
   resolve({ status: "ok", data: { attemptId, exerciseId, kind: "error", title: "Revisión", text: "Sin atribuir una causa no observada." } }); await errorRetry;
   const procedure = button("tutor-procedure").props.onClick();
-  resolve({ status: "ok", data: { attemptId, exerciseId, kind: "procedure", title: "Procedimiento", text: "$2^3=8$" } }); await procedure;
+  resolve({ status: "ok", data: { attemptId, exerciseId, kind: "procedure", title: "Procedimiento", text: "$2^3=8$",
+    source: "gemini", verifiedProcedure: "Desarrollo revisado: $2\\cdot2\\cdot2=8$." } }); await procedure;
   assert.match(content(button("tutor-response")), /Procedimiento/);
+  assert.match(content(button("tutor-source")), /generada por Gemini IA/);
+  assert.match(content(button("tutor-response")), /Desarrollo original verificado/);
+  assert.match(content(button("tutor-response")), /Desarrollo revisado/);
   assert.equal(calls.length, 4);
+});
+
+test("the existing tutor renderer preserves JSON LaTeX and real KaTeX roots, fractions, powers and units", async () => {
+  const { default: katex } = await import("katex");
+  const attemptId = "55555555-5555-4555-8555-555555555555";
+  const text = String.raw`Raíz $7\sqrt{5}\,\mathrm{m}$; fracción $\frac{9}{4}$; proporción $\frac{\sqrt{2}}{3}$; potencia $x^{2}$; función $\cos(45^{\circ})$.`;
+  const transported = JSON.parse(JSON.stringify({ text })).text;
+  assert.equal(transported, text);
+  const queries = fixture({ tables: { ejercicios: [{ ...exercise, opciones: ["6", "8", "9", "16"] }] } }).queries;
+  const app = ui({ ...actions(queries), async checkExerciseAnswerAction() {
+    return { status: "ok", data: { attemptId, exerciseId, selectedIndex: 0, correct: false, explanation: transported } };
+  }, async getTutorFeedbackAction() {
+    return { status: "ok", data: { attemptId, exerciseId, kind: "procedure", title: "Procedimiento",
+      source: "gemini", text: transported, verifiedProcedure: transported } };
+  } }, katex.renderToString);
+  app.render(); await flush();
+  await nodes(app.render()).find((n) => n.type === "button" && content(n).includes("Tema de prueba")).props.onClick();
+  await nodes(app.render()).find((n) => n.type === "button" && content(n) === "Ver ejercicio").props.onClick();
+  nodes(app.render()).find((n) => n.type === "input").props.onChange();
+  const button = (id) => nodes(app.render()).find((n) => n.props["data-cy"] === id);
+  await button("exercise-check").props.onClick();
+  await button("tutor-procedure").props.onClick();
+  const markup = nodes(button("tutor-response")).map((n) => n.props.dangerouslySetInnerHTML?.__html ?? "").join("");
+  assert.match(markup, /<msqrt>/);
+  assert.match(markup, /<mfrac>/);
+  assert.match(markup, /<msup>/);
+  assert.ok(markup.includes(String.raw`7\sqrt{5}\,\mathrm{m}`));
+  assert.ok(markup.includes(String.raw`\frac{9}{4}`));
+  assert.ok(markup.includes(String.raw`\cos(45^{\circ})`));
+  assert.doesNotMatch(markup, /katex-error/);
+  // Flattening layout to plain text loses mathematical structure; the source is intact.
+  const mathml = katex.renderToString(String.raw`\frac{\sqrt{2}}{3}`, { output: "mathml" });
+  const flattened = mathml.replace(/<annotation[\s\S]*?<\/annotation>/g, "").replace(/<[^>]*>/g, "");
+  assert.equal(flattened, "23");
 });
 
 test("simulated retry keeps the exercise, renews its attempt and ignores a late preceding response", async () => {

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
+import { differsOnlyBySumSign, generateTutorHelp } from "@/lib/ai/gemini";
 import { getStudentAccess } from "@/lib/auth/student";
 import { getSupabaseConfig } from "@/lib/supabase/config";
 import { createClient as createSessionClient } from "@/lib/supabase/server";
@@ -66,6 +67,12 @@ export async function getTutorFeedback(attemptId: string, kind: TutorHelpKind): 
       title = "Una pista para revisar tu respuesta";
       // A conservative reading strategy: no answer-key excerpts, inferred misconceptions or invented calculations.
       text = `En «${exercise.data.title}», del tema ${exercise.data.topicName}, identifica primero qué te pide determinar el enunciado y cuáles son los datos que necesitas. Antes de volver a calcular, escribe qué relación u operación conecta esos datos con lo solicitado. Luego contrasta tu alternativa con esa relación.`;
+      if (!attempt.es_correcta && differsOnlyBySumSign(choices[selectedIndex], choices[key.indice_correcto])) {
+        // The sign difference is observed; directions and the correct operation are not disclosed.
+        text = /componente|desplazamiento|vector|tramo/i.test(exercise.data.statement)
+          ? "Revisa la convención de signos del eje elegido. ¿En qué sentido apunta cada componente respecto de ese eje? Relaciona esos sentidos con los signos de tu expresión antes de volver a operar."
+          : "Revisa qué representa cada término y qué significado tienen los signos de tu expresión. ¿Corresponden a la relación entre las cantidades que describe el enunciado?";
+      }
       if (exercise.data.instructions) text += `\n\nRecuerda la instrucción del ejercicio: ${exercise.data.instructions}`;
     } else if (kind === "error") {
       title = attempt.es_correcta ? "Comprende por qué acertaste" : "Revisa tu respuesta";
@@ -77,8 +84,29 @@ export async function getTutorFeedback(attemptId: string, kind: TutorHelpKind): 
       title = "Procedimiento verificado";
       text = data.desarrollo_paso_a_paso;
     }
+    const generated = await generateTutorHelp(access.student.id, attemptId, kind, {
+      title: exercise.data.title, topic: exercise.data.topicName, statement: exercise.data.statement,
+      instructions: exercise.data.instructions, selectedChoice: choices[selectedIndex],
+      correct: attempt.es_correcta, correctChoice: choices[key.indice_correcto], procedure: data.desarrollo_paso_a_paso,
+    });
     // Only this exercise's requested feedback is returned. No key, raw record, user ID or credentials.
-    return { status: "ok", data: { attemptId, exerciseId: exercise.data.id, kind, title, text } };
+    if (generated.source === "gemini") return { status: "ok", data: {
+      attemptId, exerciseId: exercise.data.id, kind,
+      title: kind === "procedure" ? "Comprende el procedimiento" : title, source: "gemini",
+      text: kind === "error" ? `Seleccionaste: ${choices[selectedIndex]}\n\n${attempt.es_correcta ? "Tu respuesta es correcta." : "Tu respuesta es incorrecta."}\n\n${generated.text}` : generated.text,
+      ...(kind === "procedure" ? { verifiedProcedure: data.desarrollo_paso_a_paso } : {}),
+    } };
+    return { status: "ok", data: { attemptId, exerciseId: exercise.data.id, kind, title, text, source: "verified",
+      notice: generated.reason === "disabled"
+        ? "La generación con IA está desactivada. Mostramos el apoyo basado en el contenido revisado."
+        : generated.reason === "invalid"
+        ? "La explicación generada no superó los controles de contenido o formato. Mostramos el apoyo basado en el contenido revisado."
+        : generated.reason === "timeout"
+        ? "La generación superó el tiempo de espera. Mostramos el apoyo basado en el contenido revisado."
+        : generated.reason === "quota" || generated.reason === "limited"
+        ? "La generación con IA no está disponible temporalmente por un límite de solicitudes. Mostramos el apoyo basado en el contenido revisado."
+        : "La generación con IA no está disponible en este momento. Mostramos el apoyo basado en el contenido revisado.",
+    } };
   } catch {
     return { status: "error" };
   }

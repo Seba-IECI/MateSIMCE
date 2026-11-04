@@ -366,7 +366,15 @@ export function ExerciseBrowser() {
               {view.tutorError && <p role="alert" className="mt-4 text-sm text-[#8c3f34]">{view.tutorError}</p>}
               {!view.tutorLoading && !view.tutorError && tutorReply && <div className="mt-4 border-t border-[var(--ms-border)] pt-4" role="status" aria-live="polite" data-cy="tutor-response">
                 <h4 className="text-sm font-medium">{tutorReply.title}</h4>
+                <p className="mt-2 text-xs leading-5 text-[var(--ms-muted)]" data-cy="tutor-source">
+                  {tutorReply.source === "gemini" ? "Explicación generada por Gemini IA. Puede contener errores; contrástala con el desarrollo verificado." : "Apoyo basado en contenido revisado."}
+                </p>
+                {tutorReply.notice && <p className="mt-2 text-sm text-[var(--ms-muted)]">{tutorReply.notice}</p>}
                 <div className="mt-3 text-sm leading-8"><MathText text={tutorReply.text} /></div>
+                {tutorReply.verifiedProcedure && <details className="mt-4 border-t border-[var(--ms-border)] pt-3">
+                  <summary className="cursor-pointer text-sm font-medium">Desarrollo original verificado</summary>
+                  <div className="mt-3 text-sm leading-8"><MathText text={tutorReply.verifiedProcedure} /></div>
+                </details>}
               </div>}
             </section>}
           </div> : <p className="mt-6 border-t border-[var(--ms-border)] pt-4 text-xs leading-5 text-[var(--ms-muted)]">Vista de consulta. La corrección de este formato todavía no está disponible.</p>}

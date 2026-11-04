@@ -6,12 +6,16 @@ vi.mock("@/lib/supabase/config", () => ({ getSupabaseConfig: () => ({ url: "http
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
 vi.mock("@/lib/auth/student", () => ({ getStudentAccess: vi.fn() }));
 vi.mock("@/lib/exercises/queries", () => ({ getExercise: vi.fn() }));
+vi.mock("@/lib/ai/gemini", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/ai/gemini")>(), generateTutorHelp: vi.fn(),
+}));
 
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createSessionClient } from "@/lib/supabase/server";
 import { getStudentAccess } from "@/lib/auth/student";
 import { getExercise } from "@/lib/exercises/queries";
 import { getTutorFeedback } from "@/lib/exercises/tutor";
+import { generateTutorHelp } from "@/lib/ai/gemini";
 import type { TutorHelpKind } from "@/lib/exercises/types";
 
 const userId = "11111111-1111-4111-8111-111111111111";
@@ -27,6 +31,7 @@ let from: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(generateTutorHelp).mockResolvedValue({ source: "verified", reason: "disabled" });
   vi.stubEnv("SUPABASE_SECRET_KEY", "sb_secret_synthetic_test_value");
   records = [
     { id: ownId, usuario_id: userId, ejercicio_id: exerciseId, es_correcta: false,
@@ -91,12 +96,14 @@ it("no inventa un error cuando la alternativa guardada fue correcta", async () =
 it("un UUID ajeno o inexistente no permite acceder a la solución", async () => {
   await expect(getTutorFeedback(otherId, "procedure")).resolves.toEqual({ status: "not_found" });
   expect(createClient).not.toHaveBeenCalled();
+  expect(generateTutorHelp).not.toHaveBeenCalled();
 });
 
 it.each(["unauthenticated", "forbidden", "unavailable"] as const)("deniega %s, incluidos administradores, antes de leer intentos o soluciones", async (status) => {
   vi.mocked(getStudentAccess).mockResolvedValue({ status });
   await expect(getTutorFeedback(ownId, "procedure")).resolves.toEqual({ status });
   expect(sessionQuery.select).not.toHaveBeenCalled(); expect(createClient).not.toHaveBeenCalled();
+  expect(generateTutorHelp).not.toHaveBeenCalled();
 });
 
 it("un intento sin corregir o de ensayo no desbloquea la ayuda", async () => {
@@ -105,12 +112,68 @@ it("un intento sin corregir o de ensayo no desbloquea la ayuda", async () => {
   records[0].es_correcta = false; records[0].ejercicio_id = null;
   await expect(getTutorFeedback(ownId, "procedure")).resolves.toEqual({ status: "not_found" });
   expect(createClient).not.toHaveBeenCalled();
+  expect(generateTutorHelp).not.toHaveBeenCalled();
 });
 
 it("un ejercicio retirado no permite crear el cliente privilegiado", async () => {
   vi.mocked(getExercise).mockResolvedValue({ status: "not_found" });
   await expect(getTutorFeedback(ownId, "procedure")).resolves.toEqual({ status: "not_found" });
   expect(createClient).not.toHaveBeenCalled();
+  expect(generateTutorHelp).not.toHaveBeenCalled();
+});
+
+it.each(["hint", "error", "procedure"] as const)("identifica %s generado y conserva el procedimiento original cuando corresponde", async (kind) => {
+  vi.mocked(generateTutorHelp).mockResolvedValue({ source: "gemini", text: "Explicación matemática simulada y contextualizada.", model: "gemini-2.5-flash" });
+  const result = await getTutorFeedback(ownId, kind);
+  expect(result).toMatchObject({ status: "ok", data: { source: "gemini", kind } });
+  expect(generateTutorHelp).toHaveBeenCalledExactlyOnceWith(userId, ownId, kind, {
+    title: "Potencia de prueba", topic: "Números", statement: "Calcula $2^3$.", instructions: "Justifica tu elección.",
+    selectedChoice: "6", correct: false, correctChoice: "8", procedure: solution.desarrollo_paso_a_paso,
+  });
+  if (result.status !== "ok") throw new Error("Expected help");
+  if (kind === "procedure") expect(result.data.verifiedProcedure).toBe(solution.desarrollo_paso_a_paso);
+  else expect(result.data.verifiedProcedure).toBeUndefined();
+  if (kind === "error") expect(result.data.text).toContain("Seleccionaste: 6\n\nTu respuesta es incorrecta.");
+  expect(query.insert).not.toHaveBeenCalled(); expect(query.update).not.toHaveBeenCalled();
+  expect(JSON.stringify(result)).not.toMatch(/indice_correcto|respuesta_correcta|PRIVATE|usuario_id|sb_secret/);
+});
+
+it.each(["limited", "configuration", "unavailable", "invalid", "timeout"] as const)("conserva el apoyo verificado ante %s sin presentarlo como IA", async (reason) => {
+  vi.mocked(generateTutorHelp).mockResolvedValue({ source: "verified", reason });
+  const result = await getTutorFeedback(ownId, "procedure");
+  expect(result).toMatchObject({ status: "ok", data: {
+    source: "verified", text: solution.desarrollo_paso_a_paso,
+    notice: expect.stringContaining(reason === "invalid" ? "no superó los controles" : reason === "timeout" ? "superó el tiempo de espera" : "IA no está disponible"),
+  } });
+  if (reason === "invalid" || reason === "timeout") expect(JSON.stringify(result)).not.toContain("IA no está disponible");
+  expect(query.insert).not.toHaveBeenCalled(); expect(query.update).not.toHaveBeenCalled();
+});
+
+it("conserva la alternativa registrada y el desarrollo original cuando se descarta una atribución trigonométrica", async () => {
+  const exercise = await getExercise(exerciseId);
+  if (exercise.status !== "ok") throw new Error("Expected fixture");
+  const selected = String.raw`$12\cos(45^{\circ})-8\sin(45^{\circ})$`;
+  const verified = String.raw`$12\cos(45^{\circ})+8\sin(45^{\circ})$`;
+  const procedure = "Las componentes apuntan en el mismo sentido. Se suman sin cambiar los términos.";
+  vi.mocked(getExercise).mockResolvedValue({ status: "ok", data: { ...exercise.data,
+    topicName: "Geometría", statement: "Se estudian las componentes de dos desplazamientos.",
+    choices: [selected, verified, "Otra expresión", "Una cuarta expresión"],
+  } });
+  query.maybeSingle.mockResolvedValue({ error: null, data: { ...solution, desarrollo_paso_a_paso: procedure } });
+  vi.mocked(generateTutorHelp).mockResolvedValue({ source: "verified", reason: "invalid" });
+  const result = await getTutorFeedback(ownId, "error");
+  expect(result).toMatchObject({ status: "ok", data: { source: "verified", text: expect.stringContaining(procedure) } });
+  if (result.status !== "ok") throw new Error("Expected feedback");
+  expect(result.data.text).toContain(`Seleccionaste: ${selected}`);
+  expect(result.data.text).not.toMatch(/función trigonométrica incorrecta|seno en lugar de coseno/);
+  expect(generateTutorHelp).toHaveBeenCalledWith(userId, ownId, "error", expect.objectContaining({ selectedChoice: selected, correctChoice: verified }));
+  const hint = await getTutorFeedback(ownId, "hint");
+  expect(hint).toMatchObject({ status: "ok", data: { source: "verified", text: expect.stringContaining("sentido apunta cada componente") } });
+  if (hint.status !== "ok") throw new Error("Expected hint");
+  expect(hint.data.text).not.toMatch(/debes sumar|debes restar|se suman|coseno|seno/);
+  expect(hint.data.text).not.toContain(verified);
+  expect(hint.data.text).not.toContain(procedure);
+  expect(query.insert).not.toHaveBeenCalled(); expect(query.update).not.toHaveBeenCalled();
 });
 
 it("valida el intento y la acción pedagógica en el servidor", async () => {
