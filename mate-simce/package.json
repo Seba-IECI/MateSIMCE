@@ -17,11 +17,12 @@
     "test:e2e": "cypress run --browser electron",
     "cypress:open": "cypress open --e2e --browser electron",
     "test:e2e:types": "tsc --project cypress/tsconfig.json --noEmit",
-    "test:node": "node --test tests/auth.test.cjs tests/exercises.test.cjs"
+    "test:node": "node --test tests/auth.test.cjs tests/exercises.test.cjs tests/seed-bank.test.cjs tests/seed-rollback.test.cjs"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.76",
     "@base-ui/react": "^1.8.0",
+    "@google/genai": "^2.32.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.3",
     "ai": "^7.0.107",

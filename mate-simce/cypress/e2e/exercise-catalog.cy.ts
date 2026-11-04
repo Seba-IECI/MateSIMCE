@@ -23,6 +23,7 @@ function inspectTopic(index: number, count: number) {
         cy.get('[data-cy="exercise-statement"]').should("be.visible").and("not.be.empty");
         cy.get('[data-cy="exercise-browser"]').should("have.attr", "aria-busy", "false");
         cy.get('[data-cy="exercise-retry"]').should("not.exist");
+        cy.get('[data-cy="exercise-tutor"]').should("not.exist");
         cy.get('[aria-labelledby="exercise-detail-title"]').then(($detail) => {
           if ($detail.find("#exercise-choices-title").length) {
             cy.get('[aria-labelledby="exercise-choices-title"] ol li').should("have.length.at.least", 2)
@@ -40,11 +41,23 @@ function inspectTopic(index: number, count: number) {
         cy.get('[data-cy="exercise-check"]').should("be.disabled").and("contain.text", "Respuesta comprobada");
         cy.get('[data-cy="practice-diagnosis"]').should("have.attr", "aria-busy", "false");
         cy.then(() => { cy.get(axisSelector).find('[data-cy="practice-attempts"]').should("have.text", String(attemptsBefore + 1)); });
+        cy.get('[data-cy="exercise-tutor"]').should("be.visible");
+        cy.get('[data-cy="tutor-hint"]').click();
+        cy.get('[data-cy="tutor-response"]').should("contain.text", "Una pista para revisar tu respuesta");
+        cy.get('[data-cy="tutor-error"]').click();
+        cy.get('[data-cy="tutor-response"]').should("contain.text", "Seleccionaste:");
+        cy.get('[data-cy="tutor-procedure"]').click();
+        cy.get('[data-cy="tutor-response"]').should("contain.text", "Procedimiento verificado");
+        cy.get('[data-cy="tutor-response"] .katex').should("exist");
+        cy.get('[data-cy="tutor-hint"]').click();
+        cy.get('[data-cy="tutor-response"]').should("contain.text", "Una pista para revisar tu respuesta");
+        cy.then(() => { cy.get(axisSelector).find('[data-cy="practice-attempts"]').should("have.text", String(attemptsBefore + 1)); });
         cy.get('[data-cy="exercise-retry"]').click();
         cy.get("#exercise-detail-title").should("have.text", title);
         cy.get('[data-cy="exercise-browser"]').should("have.attr", "aria-busy", "false");
         cy.get('[data-cy="exercise-feedback"]').should("not.exist");
         cy.get('[data-cy="exercise-retry"]').should("not.exist");
+        cy.get('[data-cy="exercise-tutor"]').should("not.exist");
         cy.get('input[name="exercise-choice"]:checked').should("not.exist");
         cy.get('input[name="exercise-choice"]').eq(1).should("not.be.disabled").check();
         cy.get('[data-cy="exercise-check"]').click();
