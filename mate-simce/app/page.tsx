@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { LogoutButton } from "@/components/auth/logout-button";
 import { ExerciseBrowser } from "@/components/exercises/exercise-browser";
+import { ExamBrowser } from "@/components/exercises/exam-browser";
 import {
   BarChart3, BookOpenCheck, BrainCircuit, Check, ChevronRight, Clock3,
   Compass, FileText, House, Menu, MessageCircleQuestion, Sigma, Target, X,
@@ -27,7 +28,7 @@ const topics: Topic[] = [
 const menuItems = [
   { label: "Inicio", icon: House, pending: false },
   { label: "Ejercicios", icon: BookOpenCheck, pending: false },
-  { label: "Ensayos SIMCE", icon: FileText, pending: true },
+  { label: "Ensayo tipo SIMCE", icon: FileText, pending: false },
   { label: "Tutor IA", icon: MessageCircleQuestion, pending: true },
   { label: "Mi progreso", icon: BarChart3, pending: true },
 ];
@@ -74,7 +75,7 @@ export default function Home() {
 
           <div className="mt-auto border-t border-[var(--ms-border)] pt-5">
             <p className="text-xs font-medium">MateSIMCE en desarrollo</p>
-            <p className="mt-2 text-xs leading-5 text-[var(--ms-muted)]">Consulta ejercicios publicados. Los módulos de ensayos, tutor y progreso siguen siendo demostrativos.</p>
+            <p className="mt-2 text-xs leading-5 text-[var(--ms-muted)]">Consulta ejercicios publicados y practica un ensayo breve de los cuatro ejes.</p>
           </div>
         </aside>
 
@@ -98,7 +99,7 @@ export default function Home() {
           </header>
 
           <div className="mx-auto max-w-6xl px-5 py-7 lg:px-8">
-            {section === "Ejercicios" ? <ExerciseBrowser /> : <>
+            {section === "Ejercicios" ? <ExerciseBrowser /> : section === "Ensayo tipo SIMCE" ? <ExamBrowser onHome={() => setSection("Inicio")} /> : <>
             <div className="mb-7 flex flex-wrap items-start justify-between gap-4">
               <div>
                 <h1 className="text-2xl font-semibold tracking-tight sm:text-[1.75rem]">Bienvenido a MateSIMCE</h1>
@@ -164,13 +165,13 @@ export default function Home() {
               <section className={cardClass + " p-5"} aria-labelledby="exam-title">
                 <div className="flex items-center justify-between gap-3">
                   <FileText size={19} className="text-[var(--ms-primary)]" aria-hidden="true" />
-                  <span className={pendingClass}>Pendiente</span>
+                  <button type="button" onClick={() => setSection("Ensayo tipo SIMCE")} className="rounded-md bg-[var(--ms-tint)] px-3 py-1.5 text-xs font-medium text-[var(--ms-primary-hover)]">Abrir ensayo</button>
                 </div>
-                <h2 id="exam-title" className="mt-4 text-base font-semibold">Ensayos SIMCE</h2>
+                <h2 id="exam-title" className="mt-4 text-base font-semibold">Ensayo tipo SIMCE</h2>
                 <p className="mt-2 text-sm leading-6 text-[var(--ms-muted)]">Practica con preguntas de los cuatro ejes y revisa qué contenidos necesitas reforzar.</p>
                 <div className="mt-5 border-t border-[var(--ms-border)] pt-3 text-xs leading-5 text-[var(--ms-muted)]">
-                  <p className="font-medium text-[var(--ms-ink)]">Ejemplo: ensayo diagnóstico</p>
-                  <p className="mt-1">20 preguntas · 45 minutos</p>
+                  <p className="font-medium text-[var(--ms-ink)]">Práctica educativa sin puntaje oficial</p>
+                  <p className="mt-1">12 preguntas · tres por eje · sin límite de tiempo</p>
                 </div>
               </section>
 
