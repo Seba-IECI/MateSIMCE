@@ -68,7 +68,7 @@ const errorMessages: Record<Failure, string> = {
 };
 
 // Plain text stays escaped by React. Only KaTeX-generated markup becomes HTML.
-function MathText({ text }: { text: string }) {
+export function MathText({ text }: { text: string }) {
   const parts = text.split(/(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\$[^$\n]+?\$|\\\([\s\S]+?\\\))/g);
   return <span className="whitespace-pre-wrap break-words">{parts.map((part, index) => {
     if (index % 2 === 0) return <span key={index}>{part}</span>;
