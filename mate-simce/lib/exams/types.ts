@@ -43,3 +43,5 @@ export type ExamTutorFeedback = {
   notice?: string;
 };
 export type ExamTutorResponse = Exclude<ExamResponse, { status: "ok" }> | { status: "ok"; data: ExamTutorFeedback };
+export type ExamHintResponse = Exclude<ExamResponse, { status: "ok" }>
+  | { status: "ok"; data: { attemptId: string; questionId: string; text: string } };

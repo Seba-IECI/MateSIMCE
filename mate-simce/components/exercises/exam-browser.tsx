@@ -1,7 +1,7 @@
 "use client";
 
 import { startTransition, useEffect, useRef, useState } from "react";
-import { finishExamAction, getExamTutorFeedbackAction, resumeExamAction, saveExamAnswerAction, startExamAction } from "@/app/exam-actions";
+import { finishExamAction, getExamHintAction, getExamTutorFeedbackAction, resumeExamAction, saveExamAnswerAction, startExamAction } from "@/app/exam-actions";
 import { MathText } from "./exercise-browser";
 import { Button } from "@/components/ui/button";
 import { examAxes, type ExamAttempt, type ExamResponse, type ExamTutorFeedback } from "@/lib/exams/types";
@@ -29,6 +29,7 @@ export function ExamBrowser({ onHome }: { onHome: () => void }) {
   const locked = useRef(false);
   const sequence = useRef(0);
   const [help, setHelp] = useState<Record<string, ExamTutorFeedback>>({});
+  const [hints, setHints] = useState<Record<string, string>>({});
   const [helpLoading, setHelpLoading] = useState(false);
   const [helpError, setHelpError] = useState<{ questionId: string; message: string } | null>(null);
   const helpSequence = useRef(0);
@@ -54,7 +55,7 @@ export function ExamBrowser({ onHome }: { onHome: () => void }) {
     helpPending.current = null;
     setHelpLoading(false);
     setHelpError(null);
-    if (resetPosition) setHelp({});
+    if (resetPosition) { setHelp({}); setHints({}); }
     const id = ++sequence.current;
     setBusy(true);
     setError(null);
@@ -78,6 +79,27 @@ export function ExamBrowser({ onHome }: { onHome: () => void }) {
   const question = attempt?.questions[position];
   const answered = attempt?.questions.filter((q) => q.selectedIndex !== null).length ?? 0;
   const completed = attempt?.state === "completado";
+
+  async function askHint() {
+    if (!attempt || attempt.state !== "en_curso" || !question || hints[question.id] || helpPending.current !== null || busy) return;
+    const id = ++helpSequence.current;
+    const questionId = question.id;
+    const attemptId = attempt.id;
+    helpPending.current = id;
+    setHelpLoading(true);
+    setHelpError(null);
+    try {
+      const result = await getExamHintAction(attemptId, questionId);
+      if (id !== helpSequence.current) return;
+      if (result.status === "ok" && result.data.questionId === questionId && result.data.attemptId === attemptId) {
+        setHints((previous) => ({ ...previous, [questionId]: result.data.text }));
+      } else setHelpError({ questionId, message: "No pudimos recuperar una pista para esta pregunta. Puedes continuar respondiendo." });
+    } catch {
+      if (id === helpSequence.current) setHelpError({ questionId, message: "No pudimos cargar la pista. Puedes continuar con el ensayo." });
+    } finally {
+      if (id === helpSequence.current) { helpPending.current = null; setHelpLoading(false); }
+    }
+  }
 
   async function explainQuestion() {
     if (!attempt || attempt.state !== "completado" || !question || help[question.id] || helpPending.current !== null) return;
@@ -109,7 +131,7 @@ export function ExamBrowser({ onHome }: { onHome: () => void }) {
     {error && <div role="alert" className={card}><p className="text-[var(--ms-danger)]">{error}</p><Button className="mt-3" variant="outline" disabled={busy} onClick={() => startTransition(() => { void run(() => resumeExamAction(attempt?.id ?? null)); })}>Recuperar intento</Button>{error === messages.unauthenticated && <a className="ml-4 underline" href="/login">Iniciar sesión</a>}</div>}
     {!opened && <div data-cy="exam-preparation" className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_280px]"><div className={card}>
       <span className="text-xs font-semibold uppercase tracking-widest text-[var(--ms-primary)]">Una práctica, cuatro ejes</span><h2 className="mt-3 text-xl font-semibold">Pon a prueba lo que has aprendido</h2>
-      <ul className="mt-5 space-y-3 text-sm leading-6 text-[var(--ms-muted)]"><li>Responde 12 preguntas, tres de cada eje de Matemática de II medio.</li><li>Cada alternativa se guarda en tu cuenta. Puedes avanzar, regresar y modificarla antes de finalizar.</li><li>Las preguntas pendientes se cuentan como sin responder. El porcentaje de aciertos considera las 12 preguntas.</li><li>Las respuestas correctas, los procedimientos y el tutor se habilitan solo al finalizar.</li></ul>
+      <ul className="mt-5 space-y-3 text-sm leading-6 text-[var(--ms-muted)]"><li>Responde 12 preguntas, tres de cada eje de Matemática de II medio.</li><li>Cada alternativa se guarda en tu cuenta. Puedes avanzar, regresar y modificarla antes de finalizar.</li><li>Las preguntas pendientes se cuentan como sin responder. El porcentaje de aciertos considera las 12 preguntas.</li><li>Puedes pedir una pista de orientación. Las respuestas correctas, los procedimientos y las explicaciones con IA se habilitan solo al finalizar.</li></ul>
       <p className="mt-5 text-xs text-[var(--ms-muted)]">Sin límite de tiempo. Esta práctica no equivale a una evaluación ni a un puntaje oficial SIMCE.</p>
       {attempt?.state === "en_curso" ? <Button data-cy="exam-continue" className={primary + " mt-5"} disabled={busy || Boolean(error)} onClick={() => startTransition(() => { void run(() => resumeExamAction(attempt.id), true, true); })}>Continuar ensayo</Button> : <Button data-cy="exam-start" className={primary + " mt-5"} disabled={busy || Boolean(error)} onClick={() => startTransition(() => { void run(startExamAction, true, true); })}>Comenzar ensayo</Button>}
     </div><aside className={card} aria-label="Estado del ensayo">
@@ -133,6 +155,13 @@ export function ExamBrowser({ onHome }: { onHome: () => void }) {
         <fieldset disabled={busy || completed} className="mt-5 space-y-2"><legend className="mb-3 text-sm font-medium">{completed ? "Tu alternativa registrada" : "Selecciona una alternativa"}</legend>
           {question.choices.map((choice,i) => <label key={i} className={"flex items-start gap-3 rounded-lg border p-3 text-sm " + (question.selectedIndex === i ? "border-[var(--ms-primary)] bg-[var(--ms-tint)]" : "border-[var(--ms-border)]")}><input data-cy="exam-choice" className="mt-1 shrink-0" type="radio" name={question.id} value={i} checked={question.selectedIndex === i} onChange={() => startTransition(() => { void run(() => saveExamAnswerAction(attempt.id, question.id, i)); })} /><span className="font-medium text-[var(--ms-primary-hover)]">{String.fromCharCode(65+i)}.</span><MathText text={choice} /></label>)}
         </fieldset>
+        {attempt.state === "en_curso" && <section className="mt-4 rounded-lg border border-[var(--ms-border)] p-4" aria-label="Pista durante el ensayo">
+          <Button type="button" variant="outline" data-cy="exam-hint" disabled={busy || helpLoading || Boolean(hints[question.id])}
+            onClick={() => startTransition(() => { void askHint(); })}>{helpLoading ? "Preparando pista…" : hints[question.id] ? "Pista consultada" : "Dame una pista"}</Button>
+          <p className="mt-2 text-xs text-[var(--ms-muted)]">Esta orientación no califica tu alternativa ni cambia tus respuestas.</p>
+          {helpError?.questionId === question.id && <p role="alert" className="mt-3 text-xs text-[var(--ms-danger)]">{helpError.message}</p>}
+          {hints[question.id] && <div data-cy="exam-hint-response" role="status" className="mt-3 text-sm leading-7"><MathText text={hints[question.id]} /></div>}
+        </section>}
         {attempt.state === "completado" && <section data-cy="exam-review" className="mt-5 space-y-4 border-t border-[var(--ms-border)] pt-5 text-sm leading-7">
           <div className="rounded-lg bg-[var(--ms-tint)] p-4"><h3 className="font-semibold">{question.selectedIndex === null ? "Sin responder" : question.selectedIndex === attempt.questions[position].correctIndex ? "Respuesta correcta" : "Respuesta incorrecta"}</h3><p className="mt-1">Tu respuesta: {question.selectedIndex === null ? "No registraste una alternativa" : <>{String.fromCharCode(65+question.selectedIndex)}. <MathText text={question.choices[question.selectedIndex]} /></>}</p><p className="mt-1">Alternativa correcta: {String.fromCharCode(65+attempt.questions[position].correctIndex)}. <MathText text={question.choices[attempt.questions[position].correctIndex]} /></p></div>
           <div><h3 className="mb-2 font-semibold">Desarrollo original verificado</h3><MathText text={attempt.questions[position].explanation} /></div>

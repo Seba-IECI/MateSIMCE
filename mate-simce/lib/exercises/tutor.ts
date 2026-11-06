@@ -6,7 +6,17 @@ import { getStudentAccess } from "@/lib/auth/student";
 import { getSupabaseConfig } from "@/lib/supabase/config";
 import { createClient as createSessionClient } from "@/lib/supabase/server";
 import { getExercise } from "./queries";
+import { publicExerciseHint } from "./hints";
 import type { ContentResult, TutorFeedback, TutorHelpKind } from "./types";
+
+export async function getExerciseHint(exerciseId: string): Promise<ContentResult<{ exerciseId: string; text: string }>> {
+  // getExercise verifies identity, active student role and publication on every call.
+  const exercise = await getExercise(exerciseId);
+  if (exercise.status !== "ok") return exercise;
+  if (exercise.data.responseType !== "opcion_multiple" || exercise.data.choices?.length !== 4) return { status: "unavailable" };
+  return { status: "ok", data: { exerciseId: exercise.data.id,
+    text: publicExerciseHint(exercise.data.statement, exercise.data.topicName) } };
+}
 
 export async function getTutorFeedback(attemptId: string, kind: TutorHelpKind): Promise<ContentResult<TutorFeedback>> {
   if (typeof attemptId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(attemptId)

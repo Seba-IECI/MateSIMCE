@@ -20,6 +20,15 @@ describe("E2 — Práctica real de II medio", () => {
       cy.get('[data-cy="tip-text"]').invoke("text").should("not.eq", previous);
     });
     cy.get(dashboardTopic).should("have.length", 4).and("not.be.disabled");
+    cy.get('nav[aria-label="Navegación principal"]').contains("button", "Práctica por ejes").click();
+    ready();
+    cy.get('[data-cy="exercise-topic"]').should("have.length", 4).then(($cards) => {
+      const rectangles = [...$cards].map((card) => card.getBoundingClientRect());
+      expect(rectangles[0].top).to.eq(rectangles[1].top);
+      expect(rectangles[2].top).to.eq(rectangles[3].top);
+      expect(rectangles[2].top).to.be.greaterThan(rectangles[0].top);
+    });
+    home();
     cy.screenshot("ux-dashboard", { capture: "viewport" });
     cy.document().then((doc) => expect(doc.documentElement.scrollWidth).to.be.at.most(doc.documentElement.clientWidth));
     for (let axis = 0; axis < 4; axis += 1) {
@@ -43,6 +52,11 @@ describe("E2 — Práctica real de II medio", () => {
     cy.get('[data-cy="exercise-feedback"]').should("not.exist");
     cy.get('[data-cy="answer-toast"]').should("not.exist");
     cy.get('input[name="exercise-choice"]').should("have.length", 4);
+    cy.get('[data-cy="exercise-hint"]').click();
+    ready();
+    cy.get('[data-cy="exercise-hint-response"]').should("be.visible");
+    cy.get('input[name="exercise-choice"]:checked').should("not.exist");
+    cy.get('[data-cy="exercise-feedback"]').should("not.exist");
     cy.screenshot("ux-practice", { capture: "viewport" });
     cy.get('[data-cy="exercise-check"]').click();
     cy.contains('[role="alert"]', "Selecciona una alternativa").should("be.visible");
@@ -57,7 +71,7 @@ describe("E2 — Práctica real de II medio", () => {
     cy.contains("summary", "Ver explicación").click();
     cy.get('[data-cy="exercise-feedback"] .katex').should("be.visible");
     cy.get('[data-cy="exercise-tutor"]').should("be.visible");
-    cy.get('[data-cy="tutor-hint"]').should("be.visible");
+    cy.get('[data-cy="exercise-hint"]').should("not.exist");
     cy.get('[data-cy="tutor-error"]').should("be.visible");
     cy.get('[data-cy="tutor-procedure"]').should("be.visible");
     // Gemini is mocked in unit tests. This browser run consumes no generative API quota.
@@ -65,6 +79,8 @@ describe("E2 — Práctica real de II medio", () => {
     ready();
     cy.get('input[name="exercise-choice"]:checked').should("not.exist");
     cy.get('[data-cy="exercise-feedback"]').should("not.exist");
+    cy.get('[data-cy="exercise-hint-response"]').should("not.exist");
+    cy.get('[data-cy="exercise-hint"]').should("be.visible");
     cy.get('[data-cy="answer-toast"]').should("not.exist");
     cy.get('input[name="exercise-choice"]').eq(1).check();
     cy.get('[data-cy="exercise-check"]').click();

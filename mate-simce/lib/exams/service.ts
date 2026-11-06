@@ -3,7 +3,8 @@ import "server-only";
 import { getStudentAccess } from "@/lib/auth/student";
 import { createClient } from "@/lib/supabase/server";
 import { generateTutorHelp } from "@/lib/ai/gemini";
-import { examAxes, type ExamCounts, type ExamQuestion, type ExamResponse, type ExamResult, type ExamTutorResponse, type ReviewedExamQuestion } from "./types";
+import { publicExerciseHint } from "@/lib/exercises/hints";
+import { examAxes, type ExamCounts, type ExamHintResponse, type ExamQuestion, type ExamResponse, type ExamResult, type ExamTutorResponse, type ReviewedExamQuestion } from "./types";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const index = (value: unknown): value is number => Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 3;
@@ -107,6 +108,19 @@ export async function runExam(
   } catch {
     return { status: "error" };
   }
+}
+
+export async function getExamHint(attemptId: string, questionId: string): Promise<ExamHintResponse> {
+  if (typeof attemptId !== "string" || !uuid.test(attemptId) || typeof questionId !== "string" || !uuid.test(questionId)) return { status: "invalid" };
+  // Session-bound RPC repeats student/ownership checks. project() strips solutions in progress.
+  const result = await runExam("resume", attemptId);
+  if (result.status !== "ok") return result;
+  if (!result.data || result.data.id !== attemptId) return { status: "not_found" };
+  if (result.data.state !== "en_curso") return { status: "forbidden" };
+  const question = result.data.questions.find((item) => item.id === questionId);
+  if (!question) return { status: "not_found" };
+  return { status: "ok", data: { attemptId, questionId,
+    text: publicExerciseHint(question.statement, examAxes[question.category]) } };
 }
 
 // Deliberately separate from practice-attempt authorization. No new SQL, privileged key or writes.

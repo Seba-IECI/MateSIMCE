@@ -14,7 +14,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createClient as createSessionClient } from "@/lib/supabase/server";
 import { getStudentAccess } from "@/lib/auth/student";
 import { getExercise } from "@/lib/exercises/queries";
-import { getTutorFeedback } from "@/lib/exercises/tutor";
+import { getExerciseHint, getTutorFeedback } from "@/lib/exercises/tutor";
 import { generateTutorHelp } from "@/lib/ai/gemini";
 import type { TutorHelpKind } from "@/lib/exercises/types";
 
@@ -63,6 +63,23 @@ beforeEach(() => {
   vi.mocked(createClient).mockReturnValue({ from } as unknown as ReturnType<typeof createClient>);
 });
 afterEach(() => vi.unstubAllEnvs());
+
+it("ofrece una pista previa con datos públicos, sin leer soluciones, intentos ni llamar a Gemini", async () => {
+  const result = await getExerciseHint(exerciseId);
+  expect(result).toMatchObject({ status: "ok", data: { exerciseId, text: expect.any(String) } });
+  expect(getExercise).toHaveBeenCalledExactlyOnceWith(exerciseId);
+  expect(createClient).not.toHaveBeenCalled();
+  expect(createSessionClient).not.toHaveBeenCalled();
+  expect(generateTutorHelp).not.toHaveBeenCalled();
+  expect(JSON.stringify(result)).not.toMatch(/indice_correcto|respuesta_correcta|PRIVATE|2\^3=|sb_secret/);
+});
+
+it.each(["unauthenticated", "forbidden", "not_found"] as const)("no entrega pista previa con acceso %s", async (status) => {
+  vi.mocked(getExercise).mockResolvedValue({ status });
+  await expect(getExerciseHint(exerciseId)).resolves.toEqual({ status });
+  expect(createClient).not.toHaveBeenCalled();
+  expect(generateTutorHelp).not.toHaveBeenCalled();
+});
 
 it.each(["hint", "error", "procedure"] as const)("devuelve %s solo para un intento propio corregido y publicado, sin escribir datos", async (kind) => {
   const result = await getTutorFeedback(ownId, kind);
