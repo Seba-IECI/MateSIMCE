@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
-const sdk = vi.hoisted(() => ({ generate: vi.fn(), construct: vi.fn() }));
-vi.mock("@google/genai", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@google/genai")>(),
-  GoogleGenAI: class {
-    models = { generateContent: sdk.generate };
-    constructor(options: unknown) { sdk.construct(options); }
-  },
-}));
+const sdk = vi.hoisted(() => ({ generate: vi.fn(), construct: vi.fn(), realTransport: false }));
+vi.mock("@google/genai", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@google/genai")>();
+  return { ...actual, GoogleGenAI: class {
+    models: Pick<InstanceType<typeof actual.GoogleGenAI>["models"], "generateContent"> = { generateContent: sdk.generate };
+    constructor(options: ConstructorParameters<typeof actual.GoogleGenAI>[0]) {
+      sdk.construct(options);
+      if (sdk.realTransport) this.models = new actual.GoogleGenAI(options).models;
+    }
+  } };
+});
 
 const context = { title: "Potencia", topic: "Números", statement: "Calcula $2^3$.", instructions: "Compara.",
   selectedChoice: "6", correct: false, correctChoice: "8", procedure: "Multiplica $2\\cdot2\\cdot2=8$." };
@@ -17,6 +20,7 @@ let generate: typeof import("@/lib/ai/gemini").generateTutorHelp;
 
 beforeEach(async () => {
   vi.resetModules(); vi.resetAllMocks();
+  sdk.realTransport = false;
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "info").mockImplementation(() => {});
   vi.stubEnv("GEMINI_TUTOR_ENABLED", "true");
@@ -29,7 +33,9 @@ afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers(); vi.restoreAllMocks(); 
 
 it("usa el SDK oficial solo en servidor con contexto mínimo, sin identidad ni herramientas", async () => {
   expect(await generate("private-student-id", "private-attempt-id", "error", context)).toEqual({ source: "gemini", text: explanation, model: "gemini-3.1-flash-lite" });
-  expect(sdk.construct).toHaveBeenCalledWith({ apiKey: "synthetic-unit-test-key", vertexai: false, httpOptions: { timeout: 12000, retryOptions: { attempts: 1 } } });
+  expect(sdk.construct).toHaveBeenCalledWith({ apiKey: "synthetic-unit-test-key", vertexai: false, httpOptions: {
+    timeout: 12000, retryOptions: { attempts: 2, httpStatusCodes: [503], initialDelay: 1, maxDelay: 1, jitter: 0 },
+  } });
   const request = sdk.generate.mock.calls[0][0];
   expect(request.config.maxOutputTokens).toBe(1000);
   expect(request.config.abortSignal).toBeInstanceOf(AbortSignal);
@@ -52,7 +58,7 @@ it.each(["hint", "error", "procedure"] as const)("envía una tarea diferente par
     expect(JSON.parse(request.contents)).not.toHaveProperty("selectedChoice");
   }
   if (kind === "procedure") {
-    expect(sdk.construct.mock.calls[0][0].httpOptions).toEqual({ timeout: 12000, retryOptions: { attempts: 1 } });
+    expect(sdk.construct.mock.calls[0][0].httpOptions).toMatchObject({ timeout: 12000, retryOptions: { attempts: 2, httpStatusCodes: [503] } });
     expect(request.config.maxOutputTokens).toBe(1000);
     expect(JSON.parse(request.contents)).toMatchObject({ verifiedAnswer: context.correctChoice, verifiedProcedure: context.procedure });
     expect(JSON.parse(request.contents)).not.toHaveProperty("selectedChoice");
@@ -60,9 +66,9 @@ it.each(["hint", "error", "procedure"] as const)("envía una tarea diferente par
   }
 });
 
-it.each([401, 429, 503])("ante HTTP %i devuelve respaldo sin reintentar ni divulgar el error", async (status) => {
+it.each([401, 429, 503])("ante HTTP %i agotado por el SDK devuelve respaldo sin añadir otro bucle ni divulgar el error", async (status) => {
   sdk.generate.mockRejectedValue({ status, message: "PRIVATE PROVIDER ERROR" });
-  expect(await generate("student", "attempt", "error", context)).toEqual({ source: "verified", reason: status === 429 ? "quota" : status === 401 ? "configuration" : "unavailable" });
+  expect(await generate("student", "attempt", "error", context)).toEqual({ source: "verified", reason: status === 429 ? "quota" : status === 401 ? "configuration" : "busy" });
   expect(sdk.generate).toHaveBeenCalledTimes(1);
   expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain("PRIVATE PROVIDER ERROR");
 });
@@ -70,6 +76,101 @@ it.each([401, 429, 503])("ante HTTP %i devuelve respaldo sin reintentar ni divul
 it("maneja cancelación por tiempo de espera sin revelar detalles", async () => {
   sdk.generate.mockRejectedValue(new DOMException("PRIVATE", "TimeoutError"));
   expect(await generate("student", "attempt", "error", context)).toEqual({ source: "verified", reason: "timeout" });
+});
+
+// SDK instalado real; solo fetch se simula. Nunca se conecta a Google.
+function sdkResponse() {
+  return new Response(JSON.stringify({ candidates: [{ finishReason: "STOP",
+    content: { role: "model", parts: [{ text: JSON.stringify({ text: explanation, supported: true }) }] },
+  }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+}
+
+it("el SDK recupera un 503 con un único reintento y comparte la respuesta entre solicitudes simultáneas", async () => {
+  vi.useFakeTimers(); sdk.realTransport = true;
+  const transport = vi.spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 503, message: "PRIVATE", status: "UNAVAILABLE" } }), { status: 503 }))
+    .mockResolvedValue(sdkResponse());
+  const pending = generate("student", "attempt", "error", context);
+  const duplicate = generate("student", "attempt", "error", context);
+  await vi.advanceTimersByTimeAsync(1500);
+  expect(await pending).toMatchObject({ source: "gemini", text: explanation });
+  expect(await duplicate).toEqual(await pending);
+  expect(transport).toHaveBeenCalledTimes(2);
+  await generate("student", "attempt", "error", context);
+  expect(transport).toHaveBeenCalledTimes(2);
+  // El SDK conserva su temporizador por intento (unref) tras leer el cuerpo.
+  // Tras vencer, tampoco debe quedar armado nuestro plazo global de 20 s.
+  await vi.advanceTimersByTimeAsync(12_000);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it.each([401, 403, 429, 500, 503])("el transporte real limita los intentos HTTP %i y conserva un diagnóstico seguro", async (status) => {
+  vi.useFakeTimers(); sdk.realTransport = true;
+  const transport = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(
+    JSON.stringify({ error: { code: status, message: "PRIVATE PROVIDER MESSAGE" } }), { status },
+  ));
+  const pending = generate("private-student", "private-attempt", "procedure", context);
+  await vi.advanceTimersByTimeAsync(1500);
+  expect(await pending).toEqual({ source: "verified", reason: status === 503 ? "busy"
+    : status === 429 ? "quota" : status === 500 ? "unavailable" : "configuration" });
+  expect(transport).toHaveBeenCalledTimes(status === 503 ? 2 : 1);
+  const logs = JSON.stringify(vi.mocked(console.warn).mock.calls);
+  expect(logs).not.toMatch(/PRIVATE PROVIDER MESSAGE|private-student|private-attempt|synthetic-unit-test-key/);
+  if (status === 503) expect(logs).toContain("api_unavailable_after_retry");
+  await vi.advanceTimersByTimeAsync(12_000);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("el plazo global cancela el segundo intento real del SDK sin encadenar más solicitudes", async () => {
+  vi.useFakeTimers(); sdk.realTransport = true;
+  const transport = vi.spyOn(globalThis, "fetch")
+    .mockImplementationOnce(() => new Promise((resolve) => {
+      setTimeout(() => resolve(new Response(JSON.stringify({ error: { code: 503, message: "PRIVATE" } }), { status: 503 })), 10_000);
+    }))
+    .mockImplementation((_input, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("PRIVATE", "AbortError")), { once: true });
+    }));
+  const pending = generate("student", "attempt", "error", context);
+  let completed = false;
+  pending.then(() => { completed = true; });
+  await vi.advanceTimersByTimeAsync(19_999);
+  expect(completed).toBe(false);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(await pending).toEqual({ source: "verified", reason: "timeout" });
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(transport).toHaveBeenCalledTimes(2);
+});
+
+it("reutiliza durante 30 s un respaldo por 503 antes de permitir una nueva generación", async () => {
+  vi.useFakeTimers();
+  sdk.generate.mockRejectedValueOnce({ status: 503 });
+  expect(await generate("student", "attempt", "error", context)).toEqual({ source: "verified", reason: "busy" });
+  await vi.advanceTimersByTimeAsync(29_999);
+  expect((await generate("student", "attempt", "error", context)).source).toBe("verified");
+  expect(sdk.generate).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(1);
+  expect((await generate("student", "attempt", "error", context)).source).toBe("gemini");
+  expect(sdk.generate).toHaveBeenCalledTimes(2);
+});
+
+it("limita toda la generación a 20 s aunque el SDK ignore la cancelación, sin aceptar una respuesta tardía", async () => {
+  vi.useFakeTimers();
+  let resolve: (value: unknown) => void = () => {};
+  sdk.generate.mockImplementation(() => new Promise((done) => { resolve = done; }));
+  const pending = generate("student", "attempt", "procedure", context);
+  const duplicate = generate("student", "attempt", "procedure", context);
+  let completed = false;
+  pending.then(() => { completed = true; });
+  await vi.advanceTimersByTimeAsync(19_999);
+  expect(completed).toBe(false);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(await pending).toEqual({ source: "verified", reason: "timeout" });
+  expect(await duplicate).toEqual(await pending);
+  expect(sdk.generate.mock.calls[0][0].config.abortSignal.aborted).toBe(true);
+  resolve({ candidates: [{ finishReason: "STOP" }], text: JSON.stringify({ text: explanation, supported: true }) });
+  expect(await generate("student", "attempt", "procedure", context)).toEqual({ source: "verified", reason: "timeout" });
+  expect(sdk.generate).toHaveBeenCalledTimes(1);
+  expect(vi.getTimerCount()).toBe(0);
 });
 
 it.each([

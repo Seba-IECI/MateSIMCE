@@ -17,6 +17,8 @@ import { getExercise } from "@/lib/exercises/queries";
 import { getExerciseHint, getTutorFeedback } from "@/lib/exercises/tutor";
 import { generateTutorHelp } from "@/lib/ai/gemini";
 import type { TutorHelpKind } from "@/lib/exercises/types";
+import { verifiedTutorExplanation } from "@/lib/exercises/tutor-fallback";
+import katex from "katex";
 
 const userId = "11111111-1111-4111-8111-111111111111";
 const exerciseId = "22222222-2222-4222-8222-222222222222";
@@ -63,6 +65,28 @@ beforeEach(() => {
   vi.mocked(createClient).mockReturnValue({ from } as unknown as ReturnType<typeof createClient>);
 });
 afterEach(() => vi.unstubAllEnvs());
+
+it.each([
+  { topic: "Números", statement: String.raw`Calcula $\frac{3}{4}+\frac{1}{4}$.`,
+    selectedChoice: String.raw`$\frac{1}{2}$`, correctChoice: "$1$",
+    procedure: String.raw`Conserva el denominador: $\frac{3+1}{4}=\frac{4}{4}=1$.`, guidance: "denominadores compatibles" },
+  { topic: "Álgebra y funciones", statement: "Resuelve $3x+2=11$.", selectedChoice: "$x=2$", correctChoice: "$x=3$",
+    procedure: "Resta $2$ a ambos lados: $3x=9$. Divide por $3$: $x=3$.", guidance: "Identifica la incógnita" },
+  { topic: "Geometría", statement: "Determina la longitud de la diagonal.", selectedChoice: "$2$", correctChoice: String.raw`$2\sqrt{2}$`,
+    procedure: String.raw`Aplica Pitágoras: $d^{2}=2^{2}+2^{2}=8$, por tanto $d=2\sqrt{2}$.`, guidance: "unidades" },
+  { topic: "Estadística y probabilidades", statement: "Calcula la probabilidad del evento indicado.", selectedChoice: String.raw`$\frac{1}{3}$`, correctChoice: String.raw`$\frac{1}{2}$`,
+    procedure: String.raw`El enunciado describe dos casos equiprobables y uno favorable: $P=\frac{1}{2}$.`, guidance: "resultados cuentan" },
+])("el respaldo de $topic conserva la referencia completa y orienta sin inventar cálculos", (item) => {
+  const text = verifiedTutorExplanation({ ...item, correct: false });
+  expect(text).toContain(`Seleccionaste: ${item.selectedChoice}`);
+  expect(text).toContain(`Solución verificada: ${item.correctChoice}`);
+  expect(text).toContain(item.guidance);
+  expect(text.endsWith(item.procedure)).toBe(true);
+  expect(text).toContain("no podemos determinar el error específico");
+  for (const match of text.matchAll(/\$([^$\n]+)\$/g)) {
+    expect(() => katex.renderToString(match[1], { trust: false, throwOnError: true, strict: "error" })).not.toThrow();
+  }
+});
 
 it("ofrece una pista previa con datos públicos, sin leer soluciones, intentos ni llamar a Gemini", async () => {
   const result = await getExerciseHint(exerciseId);
@@ -155,15 +179,19 @@ it.each(["hint", "error", "procedure"] as const)("identifica %s generado y conse
   expect(JSON.stringify(result)).not.toMatch(/indice_correcto|respuesta_correcta|PRIVATE|usuario_id|sb_secret/);
 });
 
-it.each(["limited", "configuration", "unavailable", "invalid", "timeout"] as const)("conserva el apoyo verificado ante %s sin presentarlo como IA", async (reason) => {
+it.each(["limited", "configuration", "unavailable", "invalid", "timeout", "busy"] as const)("conserva el apoyo verificado ante %s sin presentarlo como IA", async (reason) => {
   vi.mocked(generateTutorHelp).mockResolvedValue({ source: "verified", reason });
   const result = await getTutorFeedback(ownId, "procedure");
   expect(result).toMatchObject({ status: "ok", data: {
-    source: "verified", text: solution.desarrollo_paso_a_paso,
-    notice: expect.stringContaining(reason === "invalid" ? "no superó los controles" : reason === "timeout" ? "superó el tiempo de espera" : "IA no está disponible"),
+    source: "verified", text: expect.stringContaining(solution.desarrollo_paso_a_paso),
+    notice: expect.stringContaining(reason === "invalid" ? "no superó los controles" : reason === "timeout" ? "superó el tiempo de espera" : reason === "busy" ? "después de un reintento" : "IA no está disponible"),
   } });
   if (reason === "invalid" || reason === "timeout") expect(JSON.stringify(result)).not.toContain("IA no está disponible");
   expect(query.insert).not.toHaveBeenCalled(); expect(query.update).not.toHaveBeenCalled();
+  if (result.status !== "ok") throw new Error("Expected feedback");
+  expect(result.data.text).toContain("Seleccionaste: 6");
+  expect(result.data.text).toContain("Solución verificada: 8");
+  expect(result.data.text).toContain("base completa y el exponente");
 });
 
 it("conserva la alternativa registrada y el desarrollo original cuando se descarta una atribución trigonométrica", async () => {
@@ -182,6 +210,7 @@ it("conserva la alternativa registrada y el desarrollo original cuando se descar
   expect(result).toMatchObject({ status: "ok", data: { source: "verified", text: expect.stringContaining(procedure) } });
   if (result.status !== "ok") throw new Error("Expected feedback");
   expect(result.data.text).toContain(`Seleccionaste: ${selected}`);
+  expect(result.data.text).toContain("La diferencia observable es un signo de suma/resta");
   expect(result.data.text).not.toMatch(/función trigonométrica incorrecta|seno en lugar de coseno/);
   expect(generateTutorHelp).toHaveBeenCalledWith(userId, ownId, "error", expect.objectContaining({ selectedChoice: selected, correctChoice: verified }));
   const hint = await getTutorFeedback(ownId, "hint");
