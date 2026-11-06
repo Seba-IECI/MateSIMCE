@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <title>MateSIMCE</title>
+  <rect width="64" height="64" rx="14" fill="#137D86"/>
+  <path d="M44 16H20v6l13 10-13 10v6h24v-6H30l12-10-12-10h14Z" fill="#FFFFFF"/>
+</svg>

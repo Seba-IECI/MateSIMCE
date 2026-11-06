@@ -470,6 +470,7 @@ for (const [name, options, shouldRedirect, destination = "/"] of [
     const { default: page } = load("app/login/page.tsx", {
       "react/jsx-runtime": { jsx: () => ({}), jsxs: () => ({}) },
       "next/link": {},
+      "next/image": {},
       "next/navigation": { redirect(url) { throw new Error(`redirect:${url}`); } },
       "lucide-react": {},
       "@/components/auth/login-form": {},

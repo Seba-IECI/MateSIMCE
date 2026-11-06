@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import { redirect } from "next/navigation";
 
 import { PublicationForm } from "@/components/admin/publication-form";
@@ -26,7 +27,7 @@ export default async function AdminPage() {
   const result = await getAdminDashboard();
   if (result.status === "unauthenticated") redirect("/login");
   if (result.status === "forbidden") redirect("/login?motivo=sin-acceso");
-  const panel = "rounded-xl border border-[var(--ms-border)] bg-white";
+  const panel = "rounded-xl border border-[var(--ms-border)] bg-[var(--ms-surface)]";
   const groups = result.status === "ok" ? [
     ...axes.map((axis) => ({ ...axis, exercises: result.data.exercises.filter((exercise) => exercise.category === axis.category) })),
     { category: "sin_eje", name: "Sin eje disponible", exercises: result.data.exercises.filter((exercise) => !axes.some((axis) => axis.category === exercise.category)) },
@@ -36,7 +37,7 @@ export default async function AdminPage() {
       <div className="mx-auto max-w-6xl">
         <header className="flex flex-wrap items-center justify-between gap-5 border-b border-[var(--ms-border)] pb-6">
           <div>
-            <p className="text-sm font-semibold text-[var(--ms-primary)]">MateSIMCE · Administración</p>
+            <div className="flex items-center gap-3"><Image src="/icon.svg" width={44} height={44} alt="" /><p className="text-sm font-semibold text-[var(--ms-primary)]">MateSIMCE · Administración</p></div>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight">Panel de administración</h1>
             <p className="mt-2 text-sm text-[var(--ms-muted)]">Sesión de {access.user.name}. Gestión básica del catálogo educativo.</p>
           </div>
@@ -83,13 +84,6 @@ export default async function AdminPage() {
                   </table>
                 </div>
               </details>)}
-          </section>
-          <section className={`${panel} mt-6 p-5`} aria-labelledby="exams-title">
-            <div className="flex flex-wrap items-center gap-3">
-              <h2 id="exams-title" className="text-lg font-semibold">Ensayos SIMCE</h2>
-              <span className="rounded-md bg-[var(--ms-background)] px-2 py-1 text-xs text-[var(--ms-muted)]">Pendiente de implementar</span>
-            </div>
-            <p className="mt-2 text-sm leading-6 text-[var(--ms-muted)]">Las preguntas de ensayos se administrarán en un apartado propio, separado de los ejercicios de entrenamiento por eje.</p>
           </section>
         </>}
       </div>

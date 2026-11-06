@@ -15,6 +15,14 @@ export default defineConfig({
     testIsolation: true,
     defaultCommandTimeout: 20000,
     setupNodeEvents(on, config) {
+      // Keep the headless window larger than the 1366 × 768 app viewport for visual checks.
+      on("before:browser:launch", (browser, launchOptions) => {
+        if (browser.name === "electron") {
+          launchOptions.preferences.width = 1440;
+          launchOptions.preferences.height = 900;
+        }
+        return launchOptions;
+      });
       // Read only the two approved test secrets, never expose the whole .env.
       const previousMode = process.env.NODE_ENV;
       process.env.NODE_ENV = "test";

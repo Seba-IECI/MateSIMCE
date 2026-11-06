@@ -1,6 +1,6 @@
 "use server";
 
-import { runExam } from "@/lib/exams/service";
+import { getExamTutorFeedback, runExam } from "@/lib/exams/service";
 
 export async function resumeExamAction(attemptId: string | null = null) {
   return runExam("resume", attemptId);
@@ -13,4 +13,8 @@ export async function saveExamAnswerAction(attemptId: string, questionId: string
 }
 export async function finishExamAction(attemptId: string) {
   return runExam("finish", attemptId);
+}
+
+export async function getExamTutorFeedbackAction(attemptId: string, questionId: string) {
+  return getExamTutorFeedback(attemptId, questionId);
 }

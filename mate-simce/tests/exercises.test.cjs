@@ -267,7 +267,7 @@ for (const options of [{ error: { message: "private SQL details" } }, { throws: 
 
 // Minimal React adapters exercise the component's callbacks and states in memory.
 // These checks are not browser tests or remote RLS verification.
-function ui(actions, mathRenderer) {
+function ui(actions, mathRenderer, props = {}) {
   const hooks = [];
   let cursor = 0;
   let firstRender = true;
@@ -296,7 +296,7 @@ function ui(actions, mathRenderer) {
   });
   function render() {
     cursor = 0;
-    const tree = ExerciseBrowser();
+    const tree = ExerciseBrowser(props);
     if (firstRender) { firstRender = false; effects.forEach((effect) => effect()); }
     return tree;
   }
@@ -458,7 +458,7 @@ test("the existing tutor renderer preserves JSON LaTeX and real KaTeX roots, fra
   assert.equal(flattened, "23");
 });
 
-test("simulated retry keeps the exercise, renews its attempt and ignores a late preceding response", async () => {
+test("simulated retry keeps the exercise, blocks duplicate sends, renews its attempt and ignores late help", async () => {
   const queries = fixture({ tables: { ejercicios: [{ ...exercise, opciones: ["6", "8", "9", "16"] }] } }).queries;
   const base = actions(queries);
   const attemptIds = ["55555555-5555-4555-8555-555555555555", "66666666-6666-4666-8666-666666666666"];
@@ -484,18 +484,18 @@ test("simulated retry keeps the exercise, renews its attempt and ignores a late 
   nodes(app.render()).find((n) => n.type === "input").props.onChange();
   // Simulate two sends of the same opening before React has committed its pending state.
   const send = button("exercise-check").props.onClick;
-  const late = send();
   const first = send();
+  await send();
+  assert.equal(submitted.length, 1);
   const feedback = (attemptId, selectedIndex) => ({ status: "ok", data: {
     exerciseId, attemptId, selectedIndex, correct: true, explanation: "PREVIOUS EXPLANATION",
   } });
-  finish[1](feedback(attemptIds[0], 0)); await first;
+  finish[0](feedback(attemptIds[0], 0)); await first;
   assert.ok(button("exercise-retry"));
   const lateTutor = button("tutor-hint").props.onClick();
   const retry = button("exercise-retry").props.onClick();
   assert.match(content(app.render()), /Cargando contenido/);
   await retry;
-  finish[0](feedback(attemptIds[0], 0)); await late;
   finishTutor({ status: "ok", data: { attemptId: attemptIds[0], exerciseId, kind: "hint", title: "LATE_TUTOR", text: "LATE_TUTOR" } }); await lateTutor;
   assert.deepEqual(opened, [exerciseId, exerciseId]);
   assert.equal(nodes(app.render()).find((n) => n.props.id === "exercise-detail-title") !== undefined, true);
@@ -507,8 +507,8 @@ test("simulated retry keeps the exercise, renews its attempt and ignores a late 
   assert.ok(nodes(app.render()).filter((n) => n.type === "input").every((n) => !n.props.checked));
   nodes(app.render()).filter((n) => n.type === "input")[1].props.onChange();
   const second = button("exercise-check").props.onClick();
-  assert.deepEqual(submitted, [[exerciseId, 0, attemptIds[0]], [exerciseId, 0, attemptIds[0]], [exerciseId, 1, attemptIds[1]]]);
-  finish[2](feedback(attemptIds[1], 1)); await second;
+  assert.deepEqual(submitted, [[exerciseId, 0, attemptIds[0]], [exerciseId, 1, attemptIds[1]]]);
+  finish[1](feedback(attemptIds[1], 1)); await second;
   assert.ok(button("exercise-feedback"));
   nodes(app.render()).find((n) => n.type === "button" && content(n).includes("Volver al listado")).props.onClick();
   assert.equal(button("exercise-feedback"), undefined);
@@ -524,7 +524,8 @@ test("simulated UI loads topics automatically without a course selector and open
   assert.match(content(app.render()), /Contenidos de 2.º medio/);
   const topicButton = nodes(app.render()).find((node) => node.type === "button" && content(node).includes("Tema de prueba"));
   await topicButton.props.onClick();
-  assert.equal(nodes(app.render()).find((node) => node.type === "button" && content(node).includes("Tema de prueba")).props["aria-pressed"], true);
+  assert.ok(nodes(app.render()).some((node) => node.props["aria-labelledby"] === "exercise-list-title"));
+  assert.equal(nodes(app.render()).filter((node) => node.props["data-cy"] === "exercise-topic").length, 0);
   assert.match(content(app.render()), /Ejercicio simulado/);
   const open = nodes(app.render()).find((node) => node.type === "button" && content(node) === "Ver ejercicio");
   await open.props.onClick();
