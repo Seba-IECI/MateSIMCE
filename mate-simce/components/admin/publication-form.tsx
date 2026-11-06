@@ -17,7 +17,7 @@ export function PublicationForm({ exerciseId, title, published }: { exerciseId: 
         {pending ? "Guardando…" : published ? "Despublicar" : "Publicar"}
       </Button>
       <p role={state.success ? "status" : "alert"} aria-live="polite"
-        className={`mt-2 max-w-xs text-xs ${state.success ? "text-[var(--ms-primary-hover)]" : "text-[#8c3f34]"}`}>
+        className={`mt-2 max-w-xs text-xs ${state.success ? "text-[var(--ms-primary-hover)]" : "text-[var(--ms-danger)]"}`}>
         {state.message}
       </p>
     </form>

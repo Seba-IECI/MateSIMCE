@@ -34,3 +34,12 @@ export type ExamAttempt =
 export type ExamResponse =
   | { status: "ok"; data: ExamAttempt | null }
   | { status: "unauthenticated" | "forbidden" | "unavailable" | "invalid" | "not_found" | "content_unavailable" | "configuration_required" | "error" };
+
+export type ExamTutorFeedback = {
+  attemptId: string;
+  questionId: string;
+  text: string;
+  source: "verified" | "gemini";
+  notice?: string;
+};
+export type ExamTutorResponse = Exclude<ExamResponse, { status: "ok" }> | { status: "ok"; data: ExamTutorFeedback };

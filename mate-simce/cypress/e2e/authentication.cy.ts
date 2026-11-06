@@ -3,6 +3,8 @@ import { login } from "../support/login";
 describe("E1 — Autenticación real", () => {
   it("abre el registro, valida la confirmación y permite volver al login sin crear cuentas", () => {
     cy.visit("/login");
+    cy.contains("h2", "Inicia sesión").should("be.visible");
+    cy.screenshot("ux-login", { capture: "viewport" });
     cy.contains("a", "Registrarse").click();
     cy.contains("h2", "Crea tu cuenta").should("be.visible");
     cy.get('input[name="name"]').type("Prueba de formulario");

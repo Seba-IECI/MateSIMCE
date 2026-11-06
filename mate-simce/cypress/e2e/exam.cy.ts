@@ -20,28 +20,38 @@ describe("Ensayo breve real", () => {
         if (reviewAllowed) finishedAt = /"finishedAt":"([^"]+)"/.exec(body)?.[1] ?? "";
       });
     }).as("examAction");
-    const open = () => cy.get('nav[aria-label="Navegación principal"]').contains("button", "Ensayo tipo SIMCE").click();
+    const open = () => cy.get('nav[aria-label="Navegación principal"]').contains("button", "Ensayo SIMCE").click();
     const ready = () => cy.get('[data-cy="exam-browser"]').should("have.attr", "aria-busy", "false");
     open();
     cy.wait("@examAction");
     ready();
+    cy.title().should("eq", "MateSIMCE");
+    cy.get('link[rel="icon"]').should("have.length", 1).and("have.attr", "href").and("include", "/icon.svg");
+    cy.get('img[src="/icon.svg"]').should("be.visible");
+    cy.get('[data-cy="exam-preparation"]').should("be.visible");
+    cy.get('[data-cy="exam-question"]').should("not.exist");
+    cy.get('[data-cy="exam-results"]').should("not.exist");
     cy.get('[data-cy="exam-browser"]').should("not.contain.text", "requiere habilitación");
+    cy.screenshot("ux-exam-preparation", { capture: "viewport" });
     cy.get('[data-cy="exam-browser"]').then(($exam) => {
-      if ($exam.find('[data-cy="exam-results"]').length) {
-        cy.contains("button", "Comenzar otro ensayo").click();
-        cy.wait("@examAction");
-      } else if ($exam.find('[data-cy="exam-start"]').length) {
-        cy.get('[data-cy="exam-start"]').click();
-        cy.wait("@examAction");
+      // Never finalize an existing attempt just to prepare a test's initial state.
+      if ($exam.find('[data-cy="exam-continue"]').length) {
+        throw new Error("La cuenta de pruebas tiene un ensayo pendiente. Consérvalo y finalízalo manualmente antes de probar un inicio nuevo.");
       }
     });
+    cy.get('[data-cy="exam-start"]').click();
+    cy.wait("@examAction");
     ready();
+    cy.get('[data-cy="exam-preparation"]').should("not.exist");
+    cy.get('[data-cy="exam-progress"]').should("have.text", "0 de 12 respondidas");
+    cy.get('[data-cy="exam-choice"]:checked').should("not.exist");
     cy.get('[data-cy="exam-results"]').should("not.exist");
     const axes: Record<string, number> = {};
     cy.get('[data-cy="exam-question-nav"]').should("have.length", 12).each((_button, i) => {
       cy.get('[data-cy="exam-question-nav"]').eq(i).click();
       cy.get('[data-cy="exam-question"] > p').invoke("text").then((axis) => { axes[axis] = (axes[axis] ?? 0) + 1; });
       cy.get('[data-cy="exam-choice"]').should("have.length", 4);
+      cy.get('[data-cy="exam-choice"]:checked').should("not.exist");
     }).then(() => expect(axes).to.deep.eq({ "Números": 3, "Álgebra y funciones": 3, "Geometría": 3, "Estadística y probabilidades": 3 }));
     cy.get('[data-cy="exam-question-nav"]').should("have.length", 12).first().click();
     cy.get('[data-cy="exam-choice"]').should("have.length", 4).first().then(($choice) => {
@@ -53,15 +63,26 @@ describe("Ensayo breve real", () => {
     ready();
     cy.get('[data-cy="exam-browser"] [role="alert"]').should("not.exist");
     cy.get('[data-cy="exam-choice"]').first().should("be.checked");
+    cy.get('[data-cy="exam-progress"]').should("have.text", "1 de 12 respondidas");
     cy.get('[data-cy="exam-review"]').should("not.exist");
     cy.get('[data-cy="exercise-tutor"]').should("not.exist");
+    cy.get('[data-cy="exam-tutor"]').should("not.exist");
+    cy.screenshot("ux-exam", { capture: "viewport" });
     cy.contains("button", "Siguiente").click();
+    cy.get('[data-cy="exam-choice"]:checked').should("not.exist");
     cy.contains("button", "Anterior").click();
     cy.get('[data-cy="exam-choice"]').first().should("be.checked");
     cy.reload();
     open();
     cy.wait("@examAction");
     ready();
+    cy.get('[data-cy="exam-preparation"]').should("be.visible");
+    cy.get('[data-cy="exam-question"]').should("not.exist");
+    cy.get('[data-cy="exam-preparation-progress"]').should("have.text", "1 de 12 respondidas");
+    cy.get('[data-cy="exam-continue"]').click();
+    cy.wait("@examAction");
+    ready();
+    cy.get('[data-cy="exam-progress"]').should("have.text", "1 de 12 respondidas");
     cy.get('[data-cy="exam-question-nav"]').first().click();
     cy.get('[data-cy="exam-choice"]').first().should("be.checked");
     cy.get('[data-cy="exam-finish"]').click();
@@ -70,6 +91,7 @@ describe("Ensayo breve real", () => {
     cy.wait("@examAction");
     ready();
     cy.get('[data-cy="exam-results"]').should("be.visible");
+    cy.get('[data-cy="exam-results"]').screenshot("ux-exam-results");
     cy.get('[data-cy="exam-review"]').should("be.visible");
     cy.get('[data-cy="exam-choice"]').should("be.disabled");
     cy.contains("button", "Finalizar ensayo").should("not.exist");

@@ -11,7 +11,7 @@ export function LogoutButton() {
   return (
     <form action="/auth/logout" method="post" onSubmit={() => setPending(true)}>
       <Button type="submit" variant="outline" disabled={pending}
-        className="h-10 rounded-xl border-[#d9e2dc] text-[#245a54]">
+        className="h-10 rounded-xl border-[var(--ms-border)] text-[var(--ms-ink)]">
         <LogOut aria-hidden="true" />{pending ? "Cerrando sesión…" : "Cerrar sesión"}
       </Button>
     </form>

@@ -2,7 +2,7 @@
 
 import { startTransition, useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { ArrowLeft, BookOpenCheck, LoaderCircle } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpenCheck, CheckCircle2, CircleAlert, LoaderCircle, X } from "lucide-react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 
@@ -43,8 +43,8 @@ const initialView: View = {
   tutorKind: null, tutorReplies: {}, tutorLoading: false, tutorError: null,
   diagnosis: null, diagnosisLoading: true, diagnosisError: false,
 };
-const card = "rounded-xl border border-[var(--ms-border)] bg-white p-5";
-const primary = "bg-[var(--ms-primary)] text-white hover:bg-[var(--ms-primary-hover)]";
+const card = "ms-card p-5";
+const primary = "bg-[var(--ms-primary)] text-[var(--ms-on-primary)] hover:bg-[var(--ms-primary-hover)]";
 const categories: Record<string, string> = {
   numeros: "Números", geometria: "Geometría", algebra_y_funciones: "Álgebra y funciones",
   estadistica_y_probabilidades: "Estadística y probabilidades",
@@ -85,11 +85,15 @@ export function MathText({ text }: { text: string }) {
   })}</span>;
 }
 
-export function ExerciseBrowser() {
+export function ExerciseBrowser({ initialCategory }: { initialCategory?: string } = {}) {
   const [view, setView] = useState<View>(initialView);
+  const [showExplanation, setShowExplanation] = useState(false);
+  const [toast, setToast] = useState<{ correct: boolean } | null>(null);
   const sequence = useRef(0);
   const diagnosisSequence = useRef(0);
   const tutorPending = useRef<number | null>(null);
+  const answerPending = useRef<number | null>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     const id = ++sequence.current;
@@ -101,16 +105,27 @@ export function ExerciseBrowser() {
     }).catch(() => {
       if (diagnosisId === diagnosisSequence.current) setView((current) => ({ ...current, diagnosisLoading: false, diagnosisError: true }));
     });
-    getTopicsAction().then((result) => {
+    getTopicsAction().then(async (result) => {
       if (id !== sequence.current) return;
-      setView((current) => result.status === "ok"
-        ? { ...current, topics: result.data, loaded: true, loading: false }
-        : { ...current, error: result.status, loading: false });
+      if (result.status !== "ok") {
+        setView((current) => ({ ...current, error: result.status, loading: false }));
+        return;
+      }
+      const matches = initialCategory ? result.data.filter((topic) => topic.category === initialCategory) : [];
+      // A single matching topic can be opened directly. Multiple topics remain an explicit choice.
+      if (matches.length === 1) {
+        const listing = await getExercisesAction(matches[0].id, 1);
+        if (id !== sequence.current) return;
+        setView((current) => ({ ...current, topics: result.data, loaded: true, loading: false, topicId: matches[0].id,
+          listing: listing.status === "ok" ? listing.data : null, error: listing.status === "ok" ? null : listing.status }));
+      } else setView((current) => ({ ...current, topics: result.data, loaded: true, loading: false }));
     }).catch(() => {
       if (id === sequence.current) setView((current) => ({ ...current, error: "error", loading: false }));
     });
     return () => { sequence.current += 1; diagnosisSequence.current += 1; };
-  }, []);
+  }, [initialCategory]);
+
+  useEffect(() => { titleRef.current?.focus({ preventScroll: true }); }, [view.detail?.attemptId]);
 
   async function refreshDiagnosis() {
     const id = ++diagnosisSequence.current;
@@ -131,6 +146,8 @@ export function ExerciseBrowser() {
     finish: (data: T) => Partial<View>,
   ) {
     const id = ++sequence.current;
+    setToast(null);
+    setShowExplanation(false);
     setView((current) => ({ ...current, ...start, loading: true, error: null,
       selectedChoice: null, checking: false, feedback: null, answerError: null,
       tutorKind: null, tutorReplies: {}, tutorLoading: false, tutorError: null }));
@@ -156,17 +173,20 @@ export function ExerciseBrowser() {
   }, (detail) => ({ detail }));
   const backToList = () => {
     sequence.current += 1;
+    setToast(null);
+    setShowExplanation(false);
     setView((current) => ({ ...current, exerciseId: "", detail: null, error: null, loading: false,
       selectedChoice: null, checking: false, feedback: null, answerError: null,
       tutorKind: null, tutorReplies: {}, tutorLoading: false, tutorError: null }));
   };
   async function checkAnswer() {
-    if (!view.detail || view.checking || view.feedback) return;
+    if (!view.detail || view.checking || view.feedback || answerPending.current === sequence.current) return;
     if (view.selectedChoice === null) {
       setView((current) => ({ ...current, answerError: "Selecciona una alternativa antes de comprobar tu respuesta." }));
       return;
     }
     const id = ++sequence.current;
+    answerPending.current = id;
     setView((current) => ({ ...current, checking: true, answerError: null }));
     try {
       const result = await checkExerciseAnswerAction(view.detail.id, view.selectedChoice, view.detail.attemptId);
@@ -175,6 +195,7 @@ export function ExerciseBrowser() {
       if (id !== sequence.current) return;
       if (result.status === "ok") {
         setView((current) => ({ ...current, checking: false, feedback: result.data }));
+        setToast({ correct: result.data.correct });
       } else if (result.status === "unauthenticated" || result.status === "forbidden" || result.status === "not_found") {
         setView((current) => ({ ...current, checking: false, detail: null, error: result.status }));
       } else {
@@ -184,7 +205,7 @@ export function ExerciseBrowser() {
     } catch {
       if (id === sequence.current) setView((current) => ({ ...current, checking: false,
         answerError: "No pudimos conectar para comprobar la respuesta. Inténtalo nuevamente." }));
-    }
+    } finally { if (answerPending.current === id) answerPending.current = null; }
   }
   async function askTutor(kind: TutorHelpKind) {
     if (!view.detail || !view.feedback || view.feedback.attemptId !== view.detail.attemptId
@@ -230,39 +251,26 @@ export function ExerciseBrowser() {
   const tutorReply = view.tutorKind ? view.tutorReplies[view.tutorKind] : undefined;
   const canAnswer = detail?.responseType === "opcion_multiple" && detail.choices?.length === 4
     && detail.choices.every((choice) => choice.trim()) && new Set(detail.choices).size === 4;
+  const currentIndex = view.listing?.exercises.findIndex((exercise) => exercise.id === detail?.id) ?? -1;
+  const nextExercise = currentIndex >= 0 ? view.listing?.exercises[currentIndex + 1] : undefined;
 
   return (
-    <div className="space-y-5" aria-busy={view.loading || view.checking || view.tutorLoading} data-cy="exercise-browser">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Ejercicios de matemática</h1>
-        <p className="mt-2 text-sm leading-6 text-[var(--ms-muted)]">Explora los temas disponibles y consulta sus ejercicios publicados.</p>
+    <div className="ms-enter space-y-4" aria-busy={view.loading || view.checking || view.tutorLoading} data-cy="exercise-browser">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><h1 className="text-2xl font-semibold tracking-tight">{view.exerciseId ? `Práctica: ${topic?.name ?? "Matemática"}` : "Ejercicios de matemática"}</h1>
+        {!view.exerciseId && <p className="mt-1 text-sm leading-6 text-[var(--ms-muted)]">Selecciona un eje y abre un ejercicio para comenzar.</p>}</div>
+        {view.exerciseId ? <Button type="button" variant="outline" onClick={backToList}><ArrowLeft aria-hidden="true" />Volver al listado</Button>
+          : view.topicId && <Button type="button" variant="outline" onClick={loadTopics}>Cambiar eje</Button>}
       </div>
 
-      {view.error && <div role="alert" className="rounded-lg border border-[#e8d3cc] bg-[#fbf2ef] p-4 text-sm leading-6 text-[#8c3f34]">
+      {view.error && <div role="alert" className="rounded-lg border border-[var(--ms-danger)]/30 bg-[var(--ms-danger-bg)] p-4 text-sm leading-6 text-[var(--ms-danger)]">
         <p>{errorMessages[view.error]}</p>
         {denied ? <a href="/login" className="mt-2 inline-block font-medium underline underline-offset-4">Volver al ingreso</a>
           : <Button type="button" variant="outline" className="mt-3" onClick={retry} disabled={view.loading}>Reintentar</Button>}
       </div>}
 
       {!denied && !courseUnavailable && <>
-        <section className={card} aria-labelledby="practice-diagnosis-title" data-cy="practice-diagnosis" aria-busy={view.diagnosisLoading}>
-          <h2 id="practice-diagnosis-title" className="text-base font-semibold">Resumen de tu práctica</h2>
-          <p className="mt-2 text-xs leading-5 text-[var(--ms-muted)]">Intentos corregidos en los ejercicios disponibles de 2.º medio. Reabrir un ejercicio permite un intento nuevo; reenviar el mismo intento no vuelve a contarlo.</p>
-          {view.diagnosisLoading && <p role="status" className="mt-3 text-sm text-[var(--ms-muted)]">Actualizando resumen…</p>}
-          {view.diagnosisError && <div role="alert" className="mt-3 text-sm text-[#8c3f34]">
-            <p>No pudimos consultar tu resumen. Puedes seguir practicando y volver a intentarlo.</p>
-            <Button type="button" variant="outline" className="mt-2" onClick={refreshDiagnosis} disabled={view.diagnosisLoading}>Actualizar resumen</Button>
-          </div>}
-          {view.diagnosis && <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{view.diagnosis.map((axis) => <div key={axis.category}
-            className="rounded-lg border border-[var(--ms-border)] p-4" data-cy="practice-axis" data-category={axis.category}>
-            <h3 className="text-sm font-medium">{axis.name}</h3>
-            <p className="mt-3 text-sm"><span data-cy="practice-attempts">{axis.attempts}</span> intentos · {axis.correct} aciertos</p>
-            <p className="mt-2 font-semibold text-[var(--ms-primary-hover)]">{axis.accuracy === null ? "Sin intentos" : `${axis.accuracy} % de aciertos`}</p>
-            <p className="mt-3 text-xs leading-5 text-[var(--ms-muted)]">{axis.recommendation}</p>
-          </div>)}</div>}
-          <p className="mt-4 text-xs leading-5 text-[var(--ms-muted)]">Orientación básica de práctica; no equivale a un puntaje SIMCE ni a un diagnóstico completo del aprendizaje.</p>
-        </section>
-        {!view.exerciseId && view.loaded && view.topics.length > 0 && <section className={card} aria-labelledby="content-selection-title">
+        {!view.exerciseId && !view.topicId && view.loaded && view.topics.length > 0 && <section className={card} aria-labelledby="content-selection-title">
           <h2 id="content-selection-title" className="text-base font-semibold">Contenidos de 2.º medio</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Temas disponibles">
             {view.topics.map((item) => <button type="button" key={item.id} disabled={view.loading} aria-pressed={view.topicId === item.id} data-cy="exercise-topic" data-category={item.category}
@@ -282,7 +290,7 @@ export function ExerciseBrowser() {
           <p className="mt-2 text-sm leading-6 text-[var(--ms-muted)]">Los contenidos aparecerán aquí cuando estén habilitados.</p>
         </div>}
 
-        {!view.exerciseId && view.listing && <section className={card} aria-labelledby="exercise-list-title">
+        {!view.loading && !view.exerciseId && view.listing && <section className={card} aria-labelledby="exercise-list-title">
           <h2 id="exercise-list-title" className="text-base font-semibold">{topic?.name ?? "Ejercicios publicados"}</h2>
           {view.listing.exercises.length === 0 ? <div role="status" className="mt-4 rounded-lg bg-[var(--ms-background)] p-5">
             <BookOpenCheck size={22} className="text-[var(--ms-primary)]" aria-hidden="true" />
@@ -306,26 +314,26 @@ export function ExerciseBrowser() {
           </div>}
         </section>}
 
-        {view.exerciseId && <Button type="button" variant="outline" onClick={backToList}><ArrowLeft aria-hidden="true" />Volver al listado</Button>}
-        {detail && <article className={card} aria-labelledby="exercise-detail-title">
+        {detail && <article className={card + " ms-enter " + (view.feedback ? "grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]" : "")} aria-labelledby="exercise-detail-title">
+          <div className="min-w-0">
           <p className="text-xs text-[var(--ms-primary-hover)]">{detail.topicName}</p>
-          <h2 id="exercise-detail-title" className="mt-2 text-xl font-semibold"><MathText text={detail.title} /></h2>
+          <h2 id="exercise-detail-title" ref={titleRef} tabIndex={-1} className="mt-2 text-xl font-semibold outline-none"><MathText text={detail.title} /></h2>
           <p className="mt-3 text-xs leading-5 text-[var(--ms-muted)]">Dificultad {difficultyLabels[detail.difficulty].toLowerCase()} · Desafío {challengeLabels[detail.challenge].toLowerCase()}
             {detail.estimatedSeconds !== null && <> · {Math.ceil(detail.estimatedSeconds / 60)} min aprox.</>}</p>
-          <div className="mt-6 max-w-3xl text-base leading-8" data-cy="exercise-statement"><MathText text={detail.statement} /></div>
-          {detail.instructions && <section className="mt-5 rounded-lg bg-[var(--ms-tint)] p-4">
-            <h3 className="text-sm font-medium">Instrucciones</h3>
-            <div className="mt-2 text-sm leading-7 text-[var(--ms-muted)]"><MathText text={detail.instructions} /></div>
+          <div className="mt-4 max-w-3xl text-sm leading-7" data-cy="exercise-statement"><MathText text={detail.statement} /></div>
+          {detail.instructions && <section className="mt-3 rounded-lg bg-[var(--ms-tint)] px-3 py-2">
+            <h3 className="sr-only">Instrucciones</h3>
+            <div className="text-xs leading-6 text-[var(--ms-muted)]"><MathText text={detail.instructions} /></div>
           </section>}
           {detail.imageUrl && !view.imageFailed && <Image src={detail.imageUrl} alt="Imagen de apoyo del ejercicio" unoptimized width={960} height={540}
             className="mt-5 max-h-96 w-full rounded-lg object-contain" onError={() => setView((current) => ({ ...current, imageFailed: true }))} />}
           {(detail.imageUnavailable || view.imageFailed) && <p className="mt-5 text-sm text-[var(--ms-muted)]">La imagen de apoyo no está disponible.</p>}
-          {detail.responseType === "opcion_multiple" && <section className="mt-6" aria-labelledby="exercise-choices-title">
+          {detail.responseType === "opcion_multiple" && <section className="mt-4" aria-labelledby="exercise-choices-title">
             <h3 id="exercise-choices-title" className="text-sm font-medium">Alternativas</h3>
             {detail.choices ? <fieldset disabled={view.checking || Boolean(view.feedback)} className="mt-3">
               <legend className="sr-only">Selecciona una alternativa</legend>
-              <ol className="space-y-3">{detail.choices.map((choice, index) => <li key={index}>
-                <label className={"flex gap-3 rounded-lg border p-4 text-sm leading-6 "
+              <ol className="space-y-2">{detail.choices.map((choice, index) => <li key={index}>
+                <label className={"flex gap-3 rounded-lg border p-3 text-sm leading-6 "
                   + (view.selectedChoice === index ? "border-[var(--ms-primary)] bg-[var(--ms-tint)]" : "border-[var(--ms-border)]")
                   + (canAnswer ? " cursor-pointer" : "")}>
                   {canAnswer && <input type="radio" name="exercise-choice" value={index} checked={view.selectedChoice === index}
@@ -336,24 +344,30 @@ export function ExerciseBrowser() {
               </li>)}</ol>
             </fieldset> : <p className="mt-3 text-sm leading-6 text-[var(--ms-muted)]">Las alternativas de este ejercicio aún no están disponibles para consulta.</p>}
           </section>}
-          {canAnswer ? <div className="mt-6 border-t border-[var(--ms-border)] pt-4">
-            {view.answerError && <p id="answer-error" role="alert" className="mb-3 text-sm text-[#8c3f34]">{view.answerError}</p>}
+          </div>
+          {canAnswer ? <div className={view.feedback ? "min-w-0 xl:border-l xl:border-[var(--ms-border)] xl:pl-5" : "mt-4 border-t border-[var(--ms-border)] pt-4"}>
+            {view.answerError && <p id="answer-error" role="alert" className="mb-3 text-sm text-[var(--ms-danger)]">{view.answerError}</p>}
             <Button type="button" className={primary} disabled={view.checking || Boolean(view.feedback)}
               onClick={() => startTransition(checkAnswer)} data-cy="exercise-check">
               {view.checking && <LoaderCircle size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}
               {view.checking ? "Comprobando…" : view.feedback ? "Respuesta comprobada" : "Comprobar respuesta"}
             </Button>
             {view.checking && <p role="status" className="mt-3 text-sm text-[var(--ms-muted)]">Estamos comprobando tu respuesta.</p>}
-            {view.feedback && <section role="status" aria-live="polite" aria-labelledby="answer-feedback-title" data-cy="exercise-feedback"
-              className="mt-5 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-tint)] p-5">
+            {view.feedback && <section aria-labelledby="answer-feedback-title" data-cy="exercise-feedback"
+              className="rounded-lg border border-[var(--ms-border)] bg-[var(--ms-tint)] p-4">
               <h3 id="answer-feedback-title" className="font-semibold">{view.feedback.correct ? "Respuesta correcta" : "Respuesta incorrecta"}</h3>
               <p className="mt-2 text-sm font-medium">Tu respuesta quedó guardada.</p>
-              <p className="mt-2 text-sm text-[var(--ms-muted)]">Revisa el desarrollo. Puedes volver a intentar este ejercicio o regresar al listado.</p>
-              <div className="mt-4 text-sm leading-8"><MathText text={view.feedback.explanation} /></div>
+              <p className="mt-2 text-sm text-[var(--ms-muted)]">Puedes revisar el desarrollo o practicar otra vez.</p>
+              <details open={showExplanation} onToggle={(event) => setShowExplanation(event.currentTarget.open)} className="mt-3">
+                <summary className="text-sm font-semibold text-[var(--ms-primary-hover)]">Ver explicación</summary>
+                <div className="mt-3 text-sm leading-8"><MathText text={view.feedback.explanation} /></div>
+              </details>
               <Button type="button" variant="outline" className="mt-4" disabled={view.loading || view.checking}
                 onClick={() => openExercise(detail.id)} data-cy="exercise-retry">Volver a intentar</Button>
+              {nextExercise && <Button type="button" className={primary + " ml-2 mt-4"} disabled={view.loading || view.checking}
+                onClick={() => openExercise(nextExercise.id)} data-cy="exercise-next">Siguiente ejercicio<ArrowRight size={16} aria-hidden="true" /></Button>}
             </section>}
-            {view.feedback && <section className="mt-5 rounded-lg border border-[var(--ms-border)] p-5" aria-labelledby="exercise-tutor-title" data-cy="exercise-tutor" aria-busy={view.tutorLoading}>
+            {view.feedback && <section className="mt-4 rounded-lg border border-[var(--ms-border)] p-4" aria-labelledby="exercise-tutor-title" data-cy="exercise-tutor" aria-busy={view.tutorLoading}>
               <h3 id="exercise-tutor-title" className="font-semibold">Tutor MateSIMCE</h3>
               <p className="mt-2 text-sm leading-6 text-[var(--ms-muted)]">Apoyo guiado con el contenido revisado de este ejercicio.</p>
               <div className="mt-4 flex flex-wrap gap-2">
@@ -363,7 +377,7 @@ export function ExerciseBrowser() {
                   onClick={() => startTransition(() => askTutor(kind))}>{label}</Button>)}
               </div>
               {view.tutorLoading && <p role="status" className="mt-4 text-sm text-[var(--ms-muted)]">Preparando la ayuda…</p>}
-              {view.tutorError && <p role="alert" className="mt-4 text-sm text-[#8c3f34]">{view.tutorError}</p>}
+              {view.tutorError && <p role="alert" className="mt-4 text-sm text-[var(--ms-danger)]">{view.tutorError}</p>}
               {!view.tutorLoading && !view.tutorError && tutorReply && <div className="mt-4 border-t border-[var(--ms-border)] pt-4" role="status" aria-live="polite" data-cy="tutor-response">
                 <h4 className="text-sm font-medium">{tutorReply.title}</h4>
                 <p className="mt-2 text-xs leading-5 text-[var(--ms-muted)]" data-cy="tutor-source">
@@ -379,7 +393,34 @@ export function ExerciseBrowser() {
             </section>}
           </div> : <p className="mt-6 border-t border-[var(--ms-border)] pt-4 text-xs leading-5 text-[var(--ms-muted)]">Vista de consulta. La corrección de este formato todavía no está disponible.</p>}
         </article>}
+        {!view.exerciseId && <details className="ms-card p-4"><summary className="text-sm font-semibold">Tu diagnóstico por eje</summary>
+        <section className="pt-4" aria-labelledby="practice-diagnosis-title" data-cy="practice-diagnosis" aria-busy={view.diagnosisLoading}>
+          <h2 id="practice-diagnosis-title" className="text-base font-semibold">Resumen de tu práctica</h2>
+          <p className="mt-2 text-xs leading-5 text-[var(--ms-muted)]">Intentos corregidos en los ejercicios disponibles de 2.º medio. Reabrir un ejercicio permite un intento nuevo; reenviar el mismo intento no vuelve a contarlo.</p>
+          {view.diagnosisLoading && <p role="status" className="mt-3 text-sm text-[var(--ms-muted)]">Actualizando resumen…</p>}
+          {view.diagnosisError && <div role="alert" className="mt-3 text-sm text-[var(--ms-danger)]">
+            <p>No pudimos consultar tu resumen. Puedes seguir practicando y volver a intentarlo.</p>
+            <Button type="button" variant="outline" className="mt-2" onClick={refreshDiagnosis} disabled={view.diagnosisLoading}>Actualizar resumen</Button>
+          </div>}
+          {view.diagnosis && <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{view.diagnosis.map((axis) => <div key={axis.category}
+            className="rounded-lg border border-[var(--ms-border)] p-4" data-cy="practice-axis" data-category={axis.category}>
+            <h3 className="text-sm font-medium">{axis.name}</h3>
+            <p className="mt-3 text-sm"><span data-cy="practice-attempts">{axis.attempts}</span> intentos · {axis.correct} aciertos</p>
+            <p className="mt-2 font-semibold text-[var(--ms-primary-hover)]">{axis.accuracy === null ? "Sin intentos" : `${axis.accuracy} % de aciertos`}</p>
+            <p className="mt-3 text-xs leading-5 text-[var(--ms-muted)]">{axis.recommendation}</p>
+          </div>)}</div>}
+          <p className="mt-4 text-xs leading-5 text-[var(--ms-muted)]">Orientación básica de práctica; no equivale a un puntaje SIMCE ni a un diagnóstico completo del aprendizaje.</p>
+        </section>
+        </details>}
       </>}
+      {toast && view.feedback && <aside role="status" aria-live="polite" aria-label="Resultado de la respuesta" data-cy="answer-toast" className="ms-card ms-toast ms-enter fixed bottom-5 right-5 z-50 w-[min(360px,calc(100vw-40px))] p-4">
+        <div className="flex items-start gap-3">{toast.correct ? <CheckCircle2 size={22} className="shrink-0 text-[var(--ms-success)]" aria-hidden="true" /> : <CircleAlert size={22} className="shrink-0 text-[var(--ms-danger)]" aria-hidden="true" />}
+          <div><p className="text-sm font-semibold">{toast.correct ? "¡Correcto! Muy bien, sigue así" : "Aún no es correcto"}</p><p className="mt-1 text-xs leading-5 text-[var(--ms-muted)]">{toast.correct ? "Tu intento quedó guardado." : "Revisa el procedimiento y vuelve a intentarlo. Tu intento quedó guardado."}</p></div>
+          <button type="button" aria-label="Cerrar notificación" onClick={() => setToast(null)} className="ml-auto shrink-0"><X size={17} /></button></div>
+        <div className="mt-3 flex gap-2"><Button variant="outline" type="button" onClick={() => { setShowExplanation(true); setToast(null); }}>Ver explicación</Button>
+          {toast.correct && nextExercise ? <Button type="button" className={primary} onClick={() => openExercise(nextExercise.id)}>Siguiente ejercicio</Button>
+            : <Button type="button" variant="outline" onClick={() => openExercise(detail!.id)}>Volver a intentar</Button>}</div>
+      </aside>}
     </div>
   );
 }

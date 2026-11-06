@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import Image from "next/image";
 import { redirect } from "next/navigation";
-import { BrainCircuit, LockKeyhole } from "lucide-react";
+import { LockKeyhole } from "lucide-react";
 
 import { LoginForm } from "@/components/auth/login-form";
 import { SignupForm } from "@/components/auth/signup-form";
@@ -36,9 +37,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
       <div className="grid w-full max-w-5xl items-center gap-10 lg:grid-cols-[1.1fr_1fr] lg:gap-20">
         <section aria-labelledby="welcome-title">
           <Link href="/" className="inline-flex items-center gap-3 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--ms-primary)]">
-            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--ms-ink)] text-white">
-              <BrainCircuit size={23} aria-hidden="true" />
-            </span>
+            <Image src="/icon.svg" width={44} height={44} alt="" />
             <span className="text-2xl font-semibold tracking-tight">MateSIMCE</span>
           </Link>
           <p className="mt-10 text-xs font-medium uppercase tracking-[0.12em] text-[var(--ms-primary)]">Matemática · 2.º medio</p>
@@ -54,7 +53,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
           </div>
         </section>
 
-        <section aria-labelledby="login-title" className="rounded-xl border border-[var(--ms-border)] bg-white p-7 shadow-[0_4px_20px_rgba(37,55,70,0.035)] sm:p-9">
+        <section aria-labelledby="login-title" className="rounded-xl border border-[var(--ms-border)] bg-[var(--ms-surface)] p-7 shadow-[0_4px_20px_rgba(37,55,70,0.035)] sm:p-9">
           <p className="text-xs font-medium uppercase tracking-[0.1em] text-[var(--ms-muted)]">Acceso a MateSIMCE</p>
           <h2 id="login-title" className="mt-3 text-2xl font-semibold tracking-tight">{registering ? "Crea tu cuenta" : "Inicia sesión"}</h2>
           <p className="mt-3 text-sm leading-6 text-[var(--ms-muted)]">{registering ? "Regístrate como alumno para practicar matemática de 2.º medio." : "Ingresa con tu correo y contraseña para continuar practicando."}</p>

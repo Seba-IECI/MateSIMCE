@@ -2,7 +2,8 @@ import "server-only";
 
 import { getStudentAccess } from "@/lib/auth/student";
 import { createClient } from "@/lib/supabase/server";
-import { examAxes, type ExamCounts, type ExamQuestion, type ExamResponse, type ExamResult, type ReviewedExamQuestion } from "./types";
+import { generateTutorHelp } from "@/lib/ai/gemini";
+import { examAxes, type ExamCounts, type ExamQuestion, type ExamResponse, type ExamResult, type ExamTutorResponse, type ReviewedExamQuestion } from "./types";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const index = (value: unknown): value is number => Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 3;
@@ -103,6 +104,37 @@ export async function runExam(
       return { status: "error" };
     }
     return project(data);
+  } catch {
+    return { status: "error" };
+  }
+}
+
+// Deliberately separate from practice-attempt authorization. No new SQL, privileged key or writes.
+export async function getExamTutorFeedback(attemptId: string, questionId: string): Promise<ExamTutorResponse> {
+  if (typeof attemptId !== "string" || !uuid.test(attemptId) || typeof questionId !== "string" || !uuid.test(questionId)) return { status: "invalid" };
+  try {
+    const session = await createClient();
+    const access = await getStudentAccess(session);
+    if (access.status !== "authorized") return { status: access.status };
+    // The audited RPC filters ownership using auth.uid(); project() withholds all keys in progress.
+    const result = await runExam("resume", attemptId);
+    if (result.status !== "ok") return result;
+    if (!result.data || result.data.id !== attemptId) return { status: "not_found" };
+    if (result.data.state !== "completado") return { status: "forbidden" };
+    const question = result.data.questions.find((item) => item.id === questionId);
+    if (!question) return { status: "not_found" };
+    const generated = await generateTutorHelp(access.student.id, `exam:${attemptId}:${questionId}`, "procedure", {
+      title: `Pregunta ${question.number} del ensayo`, topic: examAxes[question.category],
+      statement: question.statement, instructions: null,
+      selectedChoice: question.selectedIndex === null ? "Sin respuesta registrada" : question.choices[question.selectedIndex],
+      correct: question.selectedIndex === question.correctIndex,
+      correctChoice: question.choices[question.correctIndex], procedure: question.explanation,
+    });
+    return { status: "ok", data: { attemptId, questionId,
+      source: generated.source,
+      text: generated.source === "gemini" ? generated.text : question.explanation,
+      ...(generated.source === "verified" ? { notice: `No se generó una explicación con IA para esta solicitud. En esta pregunta de ${examAxes[question.category]}, compara tu alternativa registrada con el desarrollo verificado, operación por operación. No conocemos tus pasos de resolución.` } : {}),
+    } };
   } catch {
     return { status: "error" };
   }
