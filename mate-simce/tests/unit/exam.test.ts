@@ -4,7 +4,9 @@ import { readFileSync } from "node:fs";
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
 vi.mock("@/lib/auth/student", () => ({ getStudentAccess: vi.fn() }));
-vi.mock("@/lib/ai/gemini", () => ({ generateTutorHelp: vi.fn() }));
+vi.mock("@/lib/ai/gemini", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/ai/gemini")>(), generateTutorHelp: vi.fn(),
+}));
 
 import { createClient } from "@/lib/supabase/server";
 import { getStudentAccess } from "@/lib/auth/student";
@@ -293,6 +295,26 @@ it("genera ayuda solo con la pregunta finalizada y el desarrollo verificado del 
 it("conserva el desarrollo verificado si Gemini no genera ayuda y no cambia registros", async () => {
   rpc.mockResolvedValue({ data: payload("completado"), error: null });
   const result = await getExamTutorFeedback(attemptId, questions()[0].id);
-  expect(result).toMatchObject({ status: "ok", data: { source: "verified", text: questions()[0].explanation } });
+  expect(result).toMatchObject({ status: "ok", data: { source: "verified", text: expect.stringContaining(questions()[0].explanation) } });
   expect(rpc).toHaveBeenCalledExactlyOnceWith("matesimce_exam", expect.objectContaining({ p_operation: "resume" }));
+});
+
+it.each(["busy", "timeout", "invalid", "quota"] as const)("contextualiza el respaldo del ensayo ante %s sin alterar respuestas ni resultados", async (reason) => {
+  const attempt = payload("completado");
+  rpc.mockResolvedValue({ data: attempt, error: null });
+  vi.mocked(generateTutorHelp).mockResolvedValue({ source: "verified", reason });
+  for (const question of attempt.questions.slice(0, 3)) {
+    const result = await getExamTutorFeedback(attemptId, question.id);
+    expect(result).toMatchObject({ status: "ok", data: { source: "verified", text: expect.stringContaining(question.explanation) } });
+    if (result.status !== "ok") throw new Error("Expected feedback");
+    expect(result.data.text).toContain("Orientación (Números)");
+    expect(result.data.text).toContain("Solución verificada: 4");
+    expect(result.data.text).toContain(question.selectedIndex === null ? "No registraste una respuesta"
+      : question.selectedIndex === question.correctIndex ? "Tu respuesta coincide" : "no podemos determinar el error específico");
+    expect(result.data.notice).toContain(reason === "busy" ? "después de un reintento" : reason === "invalid"
+      ? "no superó los controles" : reason === "timeout" ? "tiempo de espera" : "límite de solicitudes");
+    expect(JSON.stringify(result)).not.toMatch(/usuario_id|respuesta_correcta|indice_correcto|sb_secret/);
+  }
+  expect(rpc.mock.calls.every(([, params]) => params.p_operation === "resume")).toBe(true);
+  expect(attempt).toEqual(payload("completado"));
 });

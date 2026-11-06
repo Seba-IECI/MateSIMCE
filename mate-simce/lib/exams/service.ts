@@ -4,6 +4,7 @@ import { getStudentAccess } from "@/lib/auth/student";
 import { createClient } from "@/lib/supabase/server";
 import { generateTutorHelp } from "@/lib/ai/gemini";
 import { publicExerciseHint } from "@/lib/exercises/hints";
+import { tutorFallbackNotice, verifiedTutorExplanation } from "@/lib/exercises/tutor-fallback";
 import { examAxes, type ExamCounts, type ExamHintResponse, type ExamQuestion, type ExamResponse, type ExamResult, type ExamTutorResponse, type ReviewedExamQuestion } from "./types";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -146,8 +147,13 @@ export async function getExamTutorFeedback(attemptId: string, questionId: string
     });
     return { status: "ok", data: { attemptId, questionId,
       source: generated.source,
-      text: generated.source === "gemini" ? generated.text : question.explanation,
-      ...(generated.source === "verified" ? { notice: `No se generó una explicación con IA para esta solicitud. En esta pregunta de ${examAxes[question.category]}, compara tu alternativa registrada con el desarrollo verificado, operación por operación. No conocemos tus pasos de resolución.` } : {}),
+      text: generated.source === "gemini" ? generated.text : verifiedTutorExplanation({
+        topic: examAxes[question.category], statement: question.statement,
+        selectedChoice: question.selectedIndex === null ? null : question.choices[question.selectedIndex],
+        correctChoice: question.choices[question.correctIndex], correct: question.selectedIndex === question.correctIndex,
+        procedure: question.explanation,
+      }),
+      ...(generated.source === "verified" ? { notice: tutorFallbackNotice(generated.reason) } : {}),
     } };
   } catch {
     return { status: "error" };

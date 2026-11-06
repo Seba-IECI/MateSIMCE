@@ -16,7 +16,7 @@ type MathematicalContext = {
   procedure: string;
 };
 type GeneratedHelp = { source: "gemini"; text: string; model: string }
-  | { source: "verified"; reason: "disabled" | "configuration" | "limited" | "quota" | "timeout" | "unavailable" | "invalid" };
+  | { source: "verified"; reason: "disabled" | "configuration" | "limited" | "quota" | "timeout" | "busy" | "unavailable" | "invalid" };
 
 // These bounds apply to ONE Node instance, not globally across Vercel instances.
 // A shared rate limiter is required before an unrestricted multi-instance rollout.
@@ -102,26 +102,39 @@ export async function generateTutorHelp(userId: string, attemptId: string, kind:
 
 async function generate(apiKey: string, model: string, contents: string, kind: TutorHelpKind,
   correctChoice: string, signOnly: boolean): Promise<GeneratedHelp> {
-  // Keep the existing budget: the observed 503 is not a token/deadline failure.
+  // El SDK cuenta la llamada inicial en attempts: como máximo un reintento por 503.
+  // Su timeout es por intento; el plazo total incluye ambos intentos y la espera.
   const timeoutMs = 12_000;
+  const totalTimeoutMs = 20_000;
   const maxOutputTokens = 1000;
   const started = Date.now();
-  const signal = AbortSignal.timeout(timeoutMs);
+  const controller = new AbortController();
+  const signal = controller.signal;
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    deadlineTimer = setTimeout(() => {
+      controller.abort();
+      reject(new DOMException("Tutor generation deadline", "TimeoutError"));
+    }, totalTimeoutMs);
+  });
   let outputTokens: number | undefined;
   let thoughtTokens: number | undefined;
   // One serialized line survives Next's log collector (object arguments can become {}).
   // No prompts, generated text, IDs, names, keys or provider error messages.
   const report = (code: string, status?: number) => JSON.stringify({
     kind, code, model, status, elapsedMs: Date.now() - started,
-    outputTokens, thoughtTokens, maxOutputTokens, timeoutMs,
+    outputTokens, thoughtTokens, maxOutputTokens, timeoutMs, totalTimeoutMs, maxAttempts: 2,
   });
   const invalid = (code: string, reason: Extract<GeneratedHelp, { source: "verified" }>["reason"] = "invalid", status?: number): GeneratedHelp => {
     console.warn(`Tutor Gemini: respaldo ${report(code, status)}`);
     return { source: "verified", reason };
   };
   try {
-    const ai = new GoogleGenAI({ apiKey, vertexai: false, httpOptions: { timeout: timeoutMs, retryOptions: { attempts: 1 } } });
-    const response = await ai.models.generateContent({ model, contents, config: {
+    const ai = new GoogleGenAI({ apiKey, vertexai: false, httpOptions: {
+      timeout: timeoutMs,
+      retryOptions: { attempts: 2, httpStatusCodes: [503], initialDelay: 1, maxDelay: 1, jitter: 0 },
+    } });
+    const response = await Promise.race([ai.models.generateContent({ model, contents, config: {
       systemInstruction: `${SYSTEM}\nTAREA: ${TASKS[kind]}` + (signOnly && kind === "error"
         ? "\nEl servidor comprobó que ambas expresiones solo difieren en un signo binario de suma/resta; sus términos y funciones son idénticos. Limita tu explicación a esa diferencia y al criterio de signos del desarrollo verificado. NO analices ni menciones funciones trigonométricas o ángulos, ni transcribas sus fórmulas: la alternativa ya se muestra junto a tu explicación. No deduzcas sentidos físicos solo a partir del signo."
         : ""),
@@ -133,7 +146,7 @@ async function generate(apiKey: string, model: string, contents: string, kind: T
       responseMimeType: "application/json",
       responseJsonSchema: { type: "object", additionalProperties: false, required: ["text", "supported"],
         properties: { text: { type: "string" }, supported: { type: "boolean" } } },
-    } });
+    } }), deadline]);
     outputTokens = response.usageMetadata?.candidatesTokenCount;
     thoughtTokens = response.usageMetadata?.thoughtsTokenCount;
     const finish = response.candidates?.[0]?.finishReason;
@@ -186,12 +199,15 @@ async function generate(apiKey: string, model: string, contents: string, kind: T
     const modelUnavailable = /not found for API version|not supported for generateContent|no longer available|retired|deprecated/i.test(message);
     if (error instanceof SyntaxError) return invalid("invalid_json");
     if (error instanceof katex.ParseError) return invalid("invalid_math");
+    if (signal.aborted || (error instanceof Error && ["AbortError", "TimeoutError"].includes(error.name))) return invalid("timeout", "timeout");
     if (typeof status === "number" && status > 0) {
       if (status === 429) return invalid("api_quota", "quota", status);
       if ([401, 403, 404].includes(status)) return invalid(modelUnavailable ? "model_unavailable_for_generation" : "api_configuration", "configuration", status);
+      if (status === 503) return invalid("api_unavailable_after_retry", "busy", status);
       return invalid("api_error", "unavailable", status);
     }
-    if (signal.aborted || (error instanceof Error && ["AbortError", "TimeoutError"].includes(error.name))) return invalid("timeout", "timeout");
     return invalid("provider_transport", "unavailable");
+  } finally {
+    clearTimeout(deadlineTimer);
   }
 }
