@@ -74,14 +74,36 @@ BEGIN
       IF v_course_count <> 1 THEN RAISE EXCEPTION 'content_unavailable'; END IF;
 
       -- One snapshot, including the verified private reference; nothing from it is returned raw.
-      WITH eligible AS (
+      -- Same selector as diversify-practice-exam.sql. Snapshot identity uses the
+      -- unchanged concat_ws separator verified in the deployed function.
+      WITH latest_exam AS (
+        SELECT i.ensayo_id FROM public.intentos_ensayo i
+          JOIN public.ensayos_simce exam ON exam.id=i.ensayo_id
+        WHERE i.usuario_id=learner AND i.estado='completado'
+          AND exam.codigo LIKE 'matesimce-practica-12-v1:%'
+        ORDER BY i.fecha_termino DESC, i.fecha_inicio DESC, i.id DESC LIMIT 1
+      ), eligible AS (
         SELECT e.id, e.tema_id, t.categoria,
           concat_ws(E'\n\n', e.titulo, e.enunciado, nullif(e.instrucciones, '')) AS statement,
           e.opciones, s.respuesta_correcta, s.desarrollo_paso_a_paso,
-          row_number() OVER (PARTITION BY t.categoria ORDER BY random(), e.id) AS position
+          row_number() OVER (PARTITION BY t.categoria ORDER BY
+            coalesce(history.in_latest,false), history.last_used NULLS FIRST, random(), e.id) AS position
         FROM public.ejercicios e
         JOIN public.temas t ON t.id = e.tema_id
         JOIN public.soluciones_ejercicios s ON s.ejercicio_id = e.id
+        -- Existing snapshots have no source ID. Match the full statement, options and topic,
+        -- never a title alone. Historical snapshots and responses remain unchanged.
+        LEFT JOIN LATERAL (
+          SELECT bool_or(q.ensayo_id=(SELECT ensayo_id FROM latest_exam)) AS in_latest,
+            max(coalesce(i.fecha_termino,i.fecha_inicio)) AS last_used
+          FROM public.preguntas_ensayo q
+            JOIN public.intentos_ensayo i ON i.ensayo_id=q.ensayo_id
+            JOIN public.ensayos_simce exam ON exam.id=i.ensayo_id
+          WHERE i.usuario_id=learner AND i.estado IN ('completado','en_curso')
+            AND exam.codigo LIKE 'matesimce-practica-12-v1:%'
+            AND q.tema_id=e.tema_id AND q.opciones=e.opciones
+            AND q.enunciado=concat_ws(E'\n\n', e.titulo, e.enunciado, nullif(e.instrucciones, ''))
+        ) history ON true
         WHERE e.publicado AND t.activo AND t.curso_id = v_course_id
           AND t.categoria IN ('numeros','algebra_y_funciones','geometria','estadistica_y_probabilidades')
           AND e.tipo_respuesta = 'opcion_multiple' AND e.imagen_url IS NULL

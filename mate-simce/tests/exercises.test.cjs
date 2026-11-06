@@ -396,24 +396,22 @@ test("simulated tutor unlocks after grading, caches each help type and handles f
   nodes(app.render()).find((n) => n.type === "input").props.onChange();
   await button("exercise-check").props.onClick();
   assert.ok(button("exercise-tutor"));
-  const hintClick = button("tutor-hint").props.onClick;
+  const hintClick = button("tutor-error").props.onClick;
   const hint = hintClick(); await hintClick();
-  assert.deepEqual(calls, [[attemptId, "hint"]]);
-  assert.equal(button("tutor-hint").props.disabled, true);
-  resolve({ status: "ok", data: { attemptId, exerciseId, kind: "hint", title: "Hint", text: "Orientación $2^3$",
+  assert.deepEqual(calls, [[attemptId, "error"]]);
+  assert.equal(button("tutor-error").props.disabled, true);
+  resolve({ status: "ok", data: { attemptId, exerciseId, kind: "error", title: "Revisión", text: "Orientación $2^3$",
     source: "verified", notice: "La generación con IA no está disponible." } }); await hint;
   assert.ok(nodes(button("tutor-response")).some((n) => n.props.dangerouslySetInnerHTML?.__html.includes('class="katex"')));
   assert.match(content(button("tutor-response")), /IA no está disponible/);
   assert.doesNotMatch(content(button("tutor-source")), /generada por Gemini/);
-  await button("tutor-hint").props.onClick();
+  await button("tutor-error").props.onClick();
   assert.equal(calls.length, 1);
-  const error = button("tutor-error").props.onClick();
+  const error = button("tutor-procedure").props.onClick();
   reject(new Error("PRIVATE NETWORK")); await error;
   assert.match(content(app.render()), /No pudimos cargar la ayuda/);
   assert.doesNotMatch(content(app.render()), /PRIVATE NETWORK/);
-  assert.equal(button("tutor-error").props.disabled, false);
-  const errorRetry = button("tutor-error").props.onClick();
-  resolve({ status: "ok", data: { attemptId, exerciseId, kind: "error", title: "Revisión", text: "Sin atribuir una causa no observada." } }); await errorRetry;
+  assert.equal(button("tutor-procedure").props.disabled, false);
   const procedure = button("tutor-procedure").props.onClick();
   resolve({ status: "ok", data: { attemptId, exerciseId, kind: "procedure", title: "Procedimiento", text: "$2^3=8$",
     source: "gemini", verifiedProcedure: "Desarrollo revisado: $2\\cdot2\\cdot2=8$." } }); await procedure;
@@ -421,7 +419,7 @@ test("simulated tutor unlocks after grading, caches each help type and handles f
   assert.match(content(button("tutor-source")), /generada por Gemini IA/);
   assert.match(content(button("tutor-response")), /Desarrollo original verificado/);
   assert.match(content(button("tutor-response")), /Desarrollo revisado/);
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 3);
 });
 
 test("the existing tutor renderer preserves JSON LaTeX and real KaTeX roots, fractions, powers and units", async () => {
@@ -492,11 +490,11 @@ test("simulated retry keeps the exercise, blocks duplicate sends, renews its att
   } });
   finish[0](feedback(attemptIds[0], 0)); await first;
   assert.ok(button("exercise-retry"));
-  const lateTutor = button("tutor-hint").props.onClick();
+  const lateTutor = button("tutor-procedure").props.onClick();
   const retry = button("exercise-retry").props.onClick();
   assert.match(content(app.render()), /Cargando contenido/);
   await retry;
-  finishTutor({ status: "ok", data: { attemptId: attemptIds[0], exerciseId, kind: "hint", title: "LATE_TUTOR", text: "LATE_TUTOR" } }); await lateTutor;
+  finishTutor({ status: "ok", data: { attemptId: attemptIds[0], exerciseId, kind: "procedure", title: "LATE_TUTOR", text: "LATE_TUTOR" } }); await lateTutor;
   assert.deepEqual(opened, [exerciseId, exerciseId]);
   assert.equal(nodes(app.render()).find((n) => n.props.id === "exercise-detail-title") !== undefined, true);
   assert.equal(button("exercise-feedback"), undefined);
@@ -513,6 +511,99 @@ test("simulated retry keeps the exercise, blocks duplicate sends, renews its att
   nodes(app.render()).find((n) => n.type === "button" && content(n).includes("Volver al listado")).props.onClick();
   assert.equal(button("exercise-feedback"), undefined);
   assert.ok(nodes(app.render()).some((n) => n.props["aria-labelledby"] === "exercise-list-title"));
+});
+
+test("next exercise crosses a catalogue page and creates no response until the student answers", async () => {
+  const items = Array.from({ length: 13 }, (_, i) => ({
+    ...exercise, id: "33333333-3333-4333-8333-" + String(i + 1).padStart(12, "0"),
+    titulo: "Ejercicio " + String(i + 1).padStart(2, "0"), opciones: ["2", "4", "6", "8"],
+  }));
+  const { queries } = fixture({ tables: { ejercicios: items } });
+  const opened = [];
+  const submitted = [];
+  const base = actions(queries);
+  const app = ui({ ...base, async getExerciseAction(id) {
+    opened.push(id);
+    const result = await base.getExerciseAction(id);
+    return { ...result, data: { ...result.data, attemptId: "55555555-5555-4555-8555-" + String(opened.length).padStart(12, "0") } };
+  }, async checkExerciseAnswerAction(id, selectedIndex, attemptId) {
+    submitted.push({ id, selectedIndex, attemptId });
+    return { status: "ok", data: { exerciseId: id, selectedIndex, attemptId, correct: false, explanation: "Referencia sintética." } };
+  } });
+  const button = (id) => nodes(app.render()).find((n) => n.props["data-cy"] === id);
+  app.render(); await flush();
+  await nodes(app.render()).find((n) => n.type === "button" && content(n).includes("Tema de prueba")).props.onClick();
+  await nodes(app.render()).filter((n) => n.props["data-cy"] === "exercise-open").at(-1).props.onClick();
+  assert.match(content(app.render()), /Ejercicio 12/);
+  nodes(app.render()).find((n) => n.type === "input").props.onChange();
+  await button("exercise-check").props.onClick();
+  await button("exercise-next").props.onClick();
+  assert.match(content(app.render()), /Ejercicio 13/);
+  assert.equal(submitted.length, 1);
+  assert.deepEqual(opened, [items[11].id, items[12].id]);
+  assert.ok(nodes(app.render()).filter((n) => n.type === "input").every((n) => !n.props.checked));
+  assert.equal(button("exercise-feedback"), undefined);
+  nodes(app.render()).find((n) => n.type === "input").props.onChange();
+  await button("exercise-check").props.onClick();
+  assert.equal(submitted.length, 2);
+  assert.notEqual(submitted[0].attemptId, submitted[1].attemptId);
+  assert.equal(button("exercise-next"), undefined);
+  nodes(app.render()).find((n) => n.type === "button" && content(n).includes("Volver al listado")).props.onClick();
+  assert.match(content(app.render()), /Página 2/);
+});
+
+test("practice axes are ordered in a symmetric two-column grid", async () => {
+  const ordered = ["numeros", "algebra_y_funciones", "geometria", "estadistica_y_probabilidades"];
+  const app = ui({ ...actions(fixture().queries), async getTopicsAction() {
+    return { status: "ok", data: [...ordered].reverse().map((category) => ({ id: category, category, name: category, description: "" })) };
+  } });
+  app.render(); await flush();
+  const tree = app.render();
+  assert.deepEqual(nodes(tree).filter((n) => n.props["data-cy"] === "exercise-topic").map((n) => n.props["data-category"]), ordered);
+  const grid = nodes(tree).find((n) => n.props["aria-label"] === "Temas disponibles");
+  assert.match(grid.props.className, /auto-rows-fr.*sm:grid-cols-2/);
+  assert.doesNotMatch(grid.props.className, /grid-cols-3/);
+});
+
+test("pre-answer hint is cached, writes no response, clears on retry and ignores a late reply after grading", async () => {
+  const base = actions(fixture({ tables: { ejercicios: [{ ...exercise, opciones: ["6", "8", "9", "16"] }] } }).queries);
+  let finishHint;
+  let hintCalls = 0;
+  let answers = 0;
+  const app = ui({ ...base, getExerciseHintAction(id) {
+    assert.equal(id, exerciseId);
+    hintCalls++;
+    return new Promise((resolve) => { finishHint = resolve; });
+  }, async checkExerciseAnswerAction(id, selectedIndex, attemptId) {
+    answers++;
+    return { status: "ok", data: { exerciseId: id, selectedIndex, attemptId, correct: false, explanation: "Referencia." } };
+  } });
+  const button = (id) => nodes(app.render()).find((n) => n.props["data-cy"] === id);
+  app.render(); await flush();
+  await nodes(app.render()).find((n) => n.type === "button" && content(n).includes("Tema de prueba")).props.onClick();
+  await nodes(app.render()).find((n) => n.props["data-cy"] === "exercise-open").props.onClick();
+  const click = button("exercise-hint").props.onClick;
+  const pending = click(); await click();
+  assert.equal(hintCalls, 1);
+  assert.equal(answers, 0);
+  assert.ok(nodes(app.render()).filter((n) => n.type === "input").every((n) => !n.props.checked));
+  finishHint({ status: "ok", data: { exerciseId, text: "Identifica la base y el exponente, sin calcular el resultado." } }); await pending;
+  assert.match(content(button("exercise-hint-response")), /base y el exponente/);
+  await button("exercise-hint").props.onClick();
+  assert.equal(hintCalls, 1);
+  nodes(app.render()).find((n) => n.type === "input").props.onChange();
+  await button("exercise-check").props.onClick();
+  assert.equal(button("exercise-hint"), undefined);
+  assert.equal(button("tutor-hint"), undefined);
+  await button("exercise-retry").props.onClick();
+  assert.equal(button("exercise-hint-response"), undefined);
+  const late = button("exercise-hint").props.onClick();
+  nodes(app.render()).find((n) => n.type === "input").props.onChange();
+  await button("exercise-check").props.onClick();
+  finishHint({ status: "ok", data: { exerciseId, text: "LATE_HINT" } }); await late;
+  assert.equal(answers, 2);
+  assert.doesNotMatch(content(app.render()), /LATE_HINT|Preparando la ayuda/);
+  assert.equal(button("tutor-error").props.disabled, false);
 });
 
 test("simulated UI loads topics automatically without a course selector and opens a read-only detail", async () => {

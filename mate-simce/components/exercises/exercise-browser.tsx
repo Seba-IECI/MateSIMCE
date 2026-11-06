@@ -6,7 +6,7 @@ import { ArrowLeft, ArrowRight, BookOpenCheck, CheckCircle2, CircleAlert, Loader
 import katex from "katex";
 import "katex/dist/katex.min.css";
 
-import { checkExerciseAnswerAction, getExerciseAction, getExercisesAction, getPracticeDiagnosisAction, getTopicsAction, getTutorFeedbackAction } from "@/app/exercises-actions";
+import { checkExerciseAnswerAction, getExerciseAction, getExerciseHintAction, getExercisesAction, getPracticeDiagnosisAction, getTopicsAction, getTutorFeedbackAction } from "@/app/exercises-actions";
 import { Button } from "@/components/ui/button";
 import type { ContentResult, ExerciseFeedback, ExercisePage, ExerciseTopic, PracticeExercise, TutorFeedback, TutorHelpKind } from "@/lib/exercises/types";
 import type { AxisDiagnosis } from "@/lib/exercises/progress";
@@ -46,13 +46,12 @@ const initialView: View = {
 const card = "ms-card p-5";
 const primary = "bg-[var(--ms-primary)] text-[var(--ms-on-primary)] hover:bg-[var(--ms-primary-hover)]";
 const categories: Record<string, string> = {
-  numeros: "Números", geometria: "Geometría", algebra_y_funciones: "Álgebra y funciones",
+  numeros: "Números", algebra_y_funciones: "Álgebra y funciones", geometria: "Geometría",
   estadistica_y_probabilidades: "Estadística y probabilidades",
 };
 const difficultyLabels = { facil: "Fácil", media: "Media", dificil: "Difícil" };
 const challengeLabels = { inicial: "Inicial", intermedio: "Intermedio", avanzado: "Avanzado" };
 const tutorOptions: Array<{ kind: TutorHelpKind; label: string }> = [
-  { kind: "hint", label: "Dame una pista" },
   { kind: "error", label: "Explica mi error" },
   { kind: "procedure", label: "Muéstrame el procedimiento" },
 ];
@@ -187,7 +186,8 @@ export function ExerciseBrowser({ initialCategory }: { initialCategory?: string 
     }
     const id = ++sequence.current;
     answerPending.current = id;
-    setView((current) => ({ ...current, checking: true, answerError: null }));
+    setView((current) => ({ ...current, checking: true, answerError: null,
+      tutorKind: null, tutorLoading: false, tutorError: null }));
     try {
       const result = await checkExerciseAnswerAction(view.detail.id, view.selectedChoice, view.detail.attemptId);
       // A save can complete while the student returns to the list; refresh the summary in either case.
@@ -208,19 +208,25 @@ export function ExerciseBrowser({ initialCategory }: { initialCategory?: string 
     } finally { if (answerPending.current === id) answerPending.current = null; }
   }
   async function askTutor(kind: TutorHelpKind) {
-    if (!view.detail || !view.feedback || view.feedback.attemptId !== view.detail.attemptId
-      || tutorPending.current === sequence.current) return;
+    if (!view.detail || view.checking || tutorPending.current === sequence.current) return;
+    const beforeAnswer = kind === "hint" && !view.feedback;
+    if (!beforeAnswer && (!view.feedback || view.feedback.attemptId !== view.detail.attemptId)) return;
     if (view.tutorReplies[kind]) {
       setView((current) => ({ ...current, tutorKind: kind, tutorError: null }));
       return;
     }
     const id = sequence.current;
-    const attemptId = view.feedback.attemptId;
+    const attemptId = view.detail.attemptId;
     const exerciseId = view.detail.id;
     tutorPending.current = id;
     setView((current) => ({ ...current, tutorKind: kind, tutorLoading: true, tutorError: null }));
     try {
-      const result = await getTutorFeedbackAction(attemptId, kind);
+      const result: ContentResult<TutorFeedback> = beforeAnswer
+        ? await getExerciseHintAction(exerciseId).then((result) => result.status === "ok"
+          ? { status: "ok", data: { attemptId, exerciseId: result.data.exerciseId, kind: "hint",
+            title: "Una orientación para empezar", text: result.data.text, source: "verified" } }
+          : result)
+        : await getTutorFeedbackAction(attemptId, kind);
       // Retry, navigation or unmount invalidates both the request and any cached help.
       if (id !== sequence.current) return;
       if (result.status === "ok" && result.data.attemptId === attemptId && result.data.exerciseId === exerciseId && result.data.kind === kind) {
@@ -253,6 +259,24 @@ export function ExerciseBrowser({ initialCategory }: { initialCategory?: string 
     && detail.choices.every((choice) => choice.trim()) && new Set(detail.choices).size === 4;
   const currentIndex = view.listing?.exercises.findIndex((exercise) => exercise.id === detail?.id) ?? -1;
   const nextExercise = currentIndex >= 0 ? view.listing?.exercises[currentIndex + 1] : undefined;
+  const hasNextExercise = Boolean(nextExercise || (currentIndex >= 0 && view.listing?.hasNext));
+  const openNextExercise = () => {
+    if (view.loading || view.checking) return;
+    if (nextExercise) return openExercise(nextExercise.id);
+    if (!hasNextExercise) return;
+    const nextPage = view.page + 1;
+    return request<{ listing: ExercisePage; detail: PracticeExercise }>(async () => {
+      const listing = await getExercisesAction(view.topicId, nextPage);
+      if (listing.status !== "ok") return listing;
+      const first = listing.data.exercises[0];
+      if (!first) return { status: "not_found" };
+      const exercise = await getExerciseAction(first.id);
+      if (exercise.status !== "ok") return exercise;
+      return { status: "ok", data: { listing: listing.data, detail: exercise.data } };
+    }, { detail: null, imageFailed: false }, ({ listing, detail }) => ({
+      listing, detail, exerciseId: detail.id, page: nextPage,
+    }));
+  };
 
   return (
     <div className="ms-enter space-y-4" aria-busy={view.loading || view.checking || view.tutorLoading} data-cy="exercise-browser">
@@ -272,9 +296,9 @@ export function ExerciseBrowser({ initialCategory }: { initialCategory?: string 
       {!denied && !courseUnavailable && <>
         {!view.exerciseId && !view.topicId && view.loaded && view.topics.length > 0 && <section className={card} aria-labelledby="content-selection-title">
           <h2 id="content-selection-title" className="text-base font-semibold">Contenidos de 2.º medio</h2>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Temas disponibles">
-            {view.topics.map((item) => <button type="button" key={item.id} disabled={view.loading} aria-pressed={view.topicId === item.id} data-cy="exercise-topic" data-category={item.category}
-              onClick={() => selectTopic(item.id)} className={"rounded-lg border p-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ms-primary)] disabled:opacity-60 "
+          <div className="mt-4 grid auto-rows-fr grid-cols-1 items-stretch gap-3 sm:grid-cols-2" aria-label="Temas disponibles">
+            {[...view.topics].sort((a,b) => Object.keys(categories).indexOf(a.category) - Object.keys(categories).indexOf(b.category)).map((item) => <button type="button" key={item.id} disabled={view.loading} aria-pressed={view.topicId === item.id} data-cy="exercise-topic" data-category={item.category}
+              onClick={() => selectTopic(item.id)} className={"flex h-full min-h-36 flex-col items-start justify-start rounded-lg border p-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ms-primary)] disabled:opacity-60 "
                 + (view.topicId === item.id ? "border-[var(--ms-primary)] bg-[var(--ms-tint)]" : "border-[var(--ms-border)] hover:bg-[var(--ms-background)]")}>
               <span className="text-[11px] text-[var(--ms-primary-hover)]">{categories[item.category] ?? "Contenido matemático"}</span>
               <span className="mt-1 block text-sm font-medium">{item.name}</span>
@@ -353,6 +377,14 @@ export function ExerciseBrowser({ initialCategory }: { initialCategory?: string 
               {view.checking ? "Comprobando…" : view.feedback ? "Respuesta comprobada" : "Comprobar respuesta"}
             </Button>
             {view.checking && <p role="status" className="mt-3 text-sm text-[var(--ms-muted)]">Estamos comprobando tu respuesta.</p>}
+            {!view.feedback && <section className="mt-4 rounded-lg border border-[var(--ms-border)] p-4" aria-label="Pista antes de responder">
+              <Button type="button" variant="outline" data-cy="exercise-hint" disabled={view.checking || view.tutorLoading}
+                onClick={() => startTransition(() => askTutor("hint"))}>Dame una pista</Button>
+              <p className="mt-2 text-xs text-[var(--ms-muted)]">Orientación para comenzar, sin comprobar ni guardar una respuesta.</p>
+              {view.tutorLoading && <p role="status" className="mt-3 text-sm">Preparando la pista…</p>}
+              {view.tutorError && <p role="alert" className="mt-3 text-sm text-[var(--ms-danger)]">{view.tutorError}</p>}
+              {!view.tutorLoading && tutorReply?.kind === "hint" && <div className="mt-3 text-sm leading-7" role="status" data-cy="exercise-hint-response"><MathText text={tutorReply.text} /></div>}
+            </section>}
             {view.feedback && <section aria-labelledby="answer-feedback-title" data-cy="exercise-feedback"
               className="rounded-lg border border-[var(--ms-border)] bg-[var(--ms-tint)] p-4">
               <h3 id="answer-feedback-title" className="font-semibold">{view.feedback.correct ? "Respuesta correcta" : "Respuesta incorrecta"}</h3>
@@ -364,8 +396,8 @@ export function ExerciseBrowser({ initialCategory }: { initialCategory?: string 
               </details>
               <Button type="button" variant="outline" className="mt-4" disabled={view.loading || view.checking}
                 onClick={() => openExercise(detail.id)} data-cy="exercise-retry">Volver a intentar</Button>
-              {nextExercise && <Button type="button" className={primary + " ml-2 mt-4"} disabled={view.loading || view.checking}
-                onClick={() => openExercise(nextExercise.id)} data-cy="exercise-next">Siguiente ejercicio<ArrowRight size={16} aria-hidden="true" /></Button>}
+              {hasNextExercise && <Button type="button" className={primary + " ml-2 mt-4"} disabled={view.loading || view.checking}
+                onClick={openNextExercise} data-cy="exercise-next">Siguiente ejercicio<ArrowRight size={16} aria-hidden="true" /></Button>}
             </section>}
             {view.feedback && <section className="mt-4 rounded-lg border border-[var(--ms-border)] p-4" aria-labelledby="exercise-tutor-title" data-cy="exercise-tutor" aria-busy={view.tutorLoading}>
               <h3 id="exercise-tutor-title" className="font-semibold">Tutor MateSIMCE</h3>
@@ -418,7 +450,7 @@ export function ExerciseBrowser({ initialCategory }: { initialCategory?: string 
           <div><p className="text-sm font-semibold">{toast.correct ? "¡Correcto! Muy bien, sigue así" : "Aún no es correcto"}</p><p className="mt-1 text-xs leading-5 text-[var(--ms-muted)]">{toast.correct ? "Tu intento quedó guardado." : "Revisa el procedimiento y vuelve a intentarlo. Tu intento quedó guardado."}</p></div>
           <button type="button" aria-label="Cerrar notificación" onClick={() => setToast(null)} className="ml-auto shrink-0"><X size={17} /></button></div>
         <div className="mt-3 flex gap-2"><Button variant="outline" type="button" onClick={() => { setShowExplanation(true); setToast(null); }}>Ver explicación</Button>
-          {toast.correct && nextExercise ? <Button type="button" className={primary} onClick={() => openExercise(nextExercise.id)}>Siguiente ejercicio</Button>
+          {toast.correct && hasNextExercise ? <Button type="button" className={primary} disabled={view.loading || view.checking} onClick={openNextExercise}>Siguiente ejercicio</Button>
             : <Button type="button" variant="outline" onClick={() => openExercise(detail!.id)}>Volver a intentar</Button>}</div>
       </aside>}
     </div>
