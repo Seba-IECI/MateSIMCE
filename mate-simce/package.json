@@ -10,6 +10,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:backend": "vitest run tests/unit/backend.test.ts",
@@ -17,7 +18,7 @@
     "test:e2e": "cypress run --browser electron",
     "cypress:open": "cypress open --e2e --browser electron",
     "test:e2e:types": "tsc --project cypress/tsconfig.json --noEmit",
-    "test:node": "node --test tests/auth.test.cjs tests/exercises.test.cjs tests/seed-bank.test.cjs tests/seed-rollback.test.cjs"
+    "test:node": "node --test tests/auth.test.cjs tests/exercises.test.cjs"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.76",

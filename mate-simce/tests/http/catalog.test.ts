@@ -12,12 +12,12 @@ const http = request(baseURL);
 const missingId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 let cookie = "";
 let auth: ReturnType<typeof createServerClient> | undefined;
+const hasCredentials = Boolean(process.env.MATESIMCE_TEST_EMAIL && process.env.MATESIMCE_TEST_PASSWORD);
 
 beforeAll(async () => {
   const email = process.env.MATESIMCE_TEST_EMAIL;
   const password = process.env.MATESIMCE_TEST_PASSWORD;
   if (!email && !password) {
-    console.warn("SIN CREDENCIALES: I1–I4 verifican solo HTTP 401; las lecturas autenticadas NO se ejecutan.");
     return;
   }
   if (!email || !password) throw new Error("Falta una variable de la cuenta de prueba.");
@@ -59,30 +59,32 @@ async function authorized(path: string, status = 200) {
   return res.body;
 }
 
-it("I1 GET /api/cursos/actual: acceso y curso único de II medio", async () => {
+it("I0 HTTP sin sesión: rechaza las cuatro rutas y la página inválida sin consultar contenido", async () => {
   await denied("/api/cursos/actual");
-  if (!cookie) return;
+  await denied("/api/temas");
+  await denied(`/api/ejercicios?temaId=${missingId}&page=1`);
+  await denied(`/api/ejercicios/${missingId}`);
+  await http.get(`/api/ejercicios?temaId=${missingId}&page=0`).expect(400).expect({ status: "invalid" });
+});
+
+it.skipIf(!hasCredentials)("I1 GET /api/cursos/actual: acceso y curso único de II medio", async () => {
   const body = await authorized("/api/cursos/actual");
   expect(body.status).toBe("ok");
   expect(body.data).toEqual({ id: expect.any(String), name: expect.any(String), level: "2_medio", description: expect.any(String) });
 });
 
-it("I2 GET /api/temas: acceso y temas disponibles del curso", async () => {
-  await denied("/api/temas");
-  if (!cookie) return;
+it.skipIf(!hasCredentials)("I2 GET /api/temas: acceso y temas disponibles del curso", async () => {
   const body = await authorized("/api/temas");
   expect(body.status).toBe("ok");
   expect(Array.isArray(body.data)).toBe(true);
+  expect(body.data.length).toBeGreaterThanOrEqual(4);
   for (const topic of body.data) {
     expect(topic).toEqual({ id: expect.any(String), name: expect.any(String), category: expect.any(String), description: expect.any(String) });
     expect(["numeros", "algebra_y_funciones", "geometria", "estadistica_y_probabilidades"]).toContain(topic.category);
   }
 });
 
-it("I3 GET /api/ejercicios: acceso, paginación y listado real sin soluciones", async () => {
-  await denied(`/api/ejercicios?temaId=${missingId}&page=1`);
-  await http.get(`/api/ejercicios?temaId=${missingId}&page=0`).expect(400).expect({ status: "invalid" });
-  if (!cookie) return;
+it.skipIf(!hasCredentials)("I3 GET /api/ejercicios: acceso, paginación y listado real sin soluciones", async () => {
   const topics = await authorized("/api/temas");
   const topic = topics.data.find((item: { id: string }) => !process.env.MATESIMCE_TEST_TOPIC_ID || item.id === process.env.MATESIMCE_TEST_TOPIC_ID);
   if (!topic) throw new Error("Se necesita un tema activo para comprobar el listado autenticado.");
@@ -91,6 +93,7 @@ it("I3 GET /api/ejercicios: acceso, paginación y listado real sin soluciones", 
   expect(body.data.page).toBe(1);
   expect(typeof body.data.hasNext).toBe("boolean");
   expect(Array.isArray(body.data.exercises)).toBe(true);
+  expect(body.data.exercises.length).toBeGreaterThan(0);
   expect(body.data.exercises.length).toBeLessThanOrEqual(12);
   for (const exercise of body.data.exercises) {
     expect(exercise.id).toEqual(expect.any(String));
@@ -99,15 +102,18 @@ it("I3 GET /api/ejercicios: acceso, paginación y listado real sin soluciones", 
   }
 });
 
-it("I4 GET /api/ejercicios/[id]: acceso y detalle real o 404 explícito", async () => {
-  await denied(`/api/ejercicios/${missingId}`);
-  if (!cookie) return;
-  const id = process.env.MATESIMCE_TEST_EXERCISE_ID;
+it.skipIf(!hasCredentials)("I4 GET /api/ejercicios/[id]: detalle publicado real sin soluciones y 404", async () => {
+  expect(await authorized(`/api/ejercicios/${missingId}`, 404)).toEqual({ status: "not_found" });
+  let id = process.env.MATESIMCE_TEST_EXERCISE_ID;
   if (!id) {
-    expect(await authorized(`/api/ejercicios/${missingId}`, 404)).toEqual({ status: "not_found" });
-    console.info("I4 autenticada: 404 comprobado; detalle positivo NO probado, falta ID publicado.");
-    return;
+    const topics = await authorized("/api/temas");
+    for (const topic of topics.data) {
+      const listing = await authorized(`/api/ejercicios?temaId=${topic.id}&page=1`);
+      id = listing.data.exercises[0]?.id;
+      if (id) break;
+    }
   }
+  if (!id) throw new Error("Se necesita un ejercicio publicado para comprobar el detalle positivo.");
   const body = await authorized(`/api/ejercicios/${id}`);
   expect(body.status).toBe("ok");
   expect(body.data.id).toBe(id);
