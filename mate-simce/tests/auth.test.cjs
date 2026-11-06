@@ -366,7 +366,6 @@ for (const [status, destination] of [
       "next/navigation": { redirect(url) { throw new Error(`redirect:${url}`); } },
       "lucide-react": {},
       "@/components/auth/logout-button": {},
-      "@/components/auth/student-session": {},
       "@/lib/auth/student": { async getStudentAccess() { return { status }; } },
       "@/lib/supabase/server": { async createClient() { return {}; } },
     });

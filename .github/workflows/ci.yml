@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - "feat/**"
+      - "chore/**"
   pull_request:
     branches:
       - main
@@ -18,7 +19,7 @@ concurrency:
 
 jobs:
   quality:
-    name: Lint y build
+    name: Interfaz y servidor Next.js
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -41,5 +42,41 @@ jobs:
       - name: Ejecutar ESLint
         run: npm run lint
 
+      - name: Validar tipos de aplicación y Cypress
+        run: |
+          npm run typecheck
+          npm run test:e2e:types
+
+      - name: Probar reglas de servidor y componentes aislados (Vitest)
+        run: npm test
+
+      - name: Probar autenticación y estados de interfaz (Node)
+        run: npm run test:node
+
       - name: Compilar aplicacion Next.js
         run: npm run build
+
+      # Configuración sintética: sin proyecto remoto ni credenciales en los PR.
+      # Las lecturas autenticadas se omiten explícitamente; no cuentan como evidencia de Supabase.
+      - name: Comprobar contratos HTTP sin sesión sobre el build real
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_ci_placeholder
+          MATESIMCE_TEST_BASE_URL: http://127.0.0.1:3100
+        run: |
+          npm run start -- --hostname 127.0.0.1 --port 3100 > "$RUNNER_TEMP/matesimce-next.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:3100/icon.svg > /dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            cat "$RUNNER_TEMP/matesimce-next.log"
+            exit 1
+          fi
+          npm run test:http

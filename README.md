@@ -1,170 +1,99 @@
 # MateSIMCE
 
-Plataforma web en desarrollo para apoyar el aprendizaje de matemática de estudiantes de segundo medio en Chile y su preparación para el SIMCE. El proyecto contempla práctica de ejercicios, ensayos, seguimiento del progreso y un tutor con inteligencia artificial que entregue explicaciones, pistas y retroalimentación.
+Plataforma educativa de Matemática para estudiantes de II medio en Chile. Permite practicar por eje, comprender errores y rendir ensayos breves. Los resultados expresan aciertos y porcentajes; no equivalen a un puntaje oficial SIMCE.
 
-El objetivo es acompañar el razonamiento del estudiante y reforzar sus habilidades en números, geometría, álgebra y funciones, y estadística y probabilidades.
+## Funcionalidades actuales
 
-## Estado del proyecto
+- Registro de alumnos, confirmación por correo, login y logout con Supabase Auth SSR.
+- Acceso diferenciado para alumnos activos y administradores; panel administrativo con estadísticas reales y publicación de ejercicios.
+- Práctica por los cuatro ejes, corrección determinista en servidor, intentos persistentes, diagnóstico y opción de volver a intentar.
+- Pistas durante la resolución y tutor contextualizado con Gemini después de responder; respaldo basado en contenido verificado cuando la generación no está disponible.
+- Ensayos de 12 preguntas, tres por eje, con respuestas persistentes, finalización idempotente y revisión posterior. Las soluciones se habilitan únicamente después de finalizar.
+- Interfaz Dark Academic con notación matemática KaTeX.
 
-Actualmente están implementadas la página de presentación, la configuración inicial de la aplicación y la definición SQL de la base de datos. Las funcionalidades educativas descritas a continuación forman parte del diseño del producto y todavía requieren integración en la aplicación.
+El responsable confirmó 65 ejercicios publicados en el entorno actual. Ese contenido y sus solucionarios no forman parte de la instalación pública. El despliegue en Vercel está pendiente.
 
-| Área | Estado actual |
-| --- | --- |
-| Interfaz | Página de presentación y componente reutilizable de botón. |
-| Datos | Modelo SQL objetivo con 24 tablas, participantes seudónimos y sesiones temporales; pendiente de migrar la base existente. |
-| Contenido inicial | Roles de usuario, curso de segundo medio y cuatro ejes temáticos. |
-| Autenticación | Cuentas docentes en Supabase Auth y participantes con credenciales privadas; flujo de acceso pendiente. |
-| Ejercicios y ensayos | Modelo de datos definido; pantallas y procesamiento de respuestas pendientes. |
-| Tutor IA | Dependencias instaladas y modelo de conversaciones definido; integración con Gemini pendiente. |
-| Progreso y recomendaciones | Tablas definidas; cálculo y visualización pendientes. |
+## Stack y arquitectura
 
-Los archivos SQL describen la configuración prevista; su presencia en el repositorio no acredita que se hayan ejecutado en una instancia de Supabase.
+Next.js 16.4.1 (App Router), React 19, TypeScript, Tailwind CSS 4, shadcn/ui, Supabase Auth/PostgreSQL con RLS, KaTeX y el SDK oficial `@google/genai`.
 
-## Arquitectura
+La interfaz, las Server Actions y los Route Handlers pertenecen a la misma aplicación Next.js. No hay un servidor backend independiente. Supabase autentica y persiste datos; la corrección se calcula en servidor con soluciones verificadas. Gemini ayuda a explicar y no determina calificaciones.
 
-La aplicación se organiza alrededor de Next.js con App Router. La interfaz y las futuras rutas del servidor se alojan en el mismo proyecto; Supabase proporciona la capa de autenticación y persistencia prevista, y Gemini será consumido desde el servidor mediante Vercel AI SDK.
+## Instalación local
 
-```mermaid
-flowchart TD
-    A[Estudiante / docente] --> B[Interfaz web · Next.js y React]
-    B -. Integración pendiente .-> C[Lógica de servidor · Next.js]
-    B -. Autenticación pendiente .-> D[Supabase Auth]
-    C -. Persistencia pendiente .-> E[PostgreSQL · Supabase]
-    C -. Tutoría pendiente .-> F[Vercel AI SDK · Google Gemini]
-    D --> E
-```
-
-El diagrama representa la arquitectura prevista. En esta etapa, la interfaz funciona como presentación estática y los servicios externos aún no están conectados.
-
-### Modelo de datos
-
-El [esquema de Supabase](mate-simce/supabase/schema.sql) organiza la información en los siguientes dominios:
-
-| Dominio | Tablas |
-| --- | --- |
-| Cuentas docentes y contenidos | `roles`, `usuarios`, `cursos`, `temas` |
-| Grupos y acceso | `grupos`, `participantes`, `credenciales_participante`, `actividades`, `actividades_ejercicios`, `sesiones_acceso` |
-| Práctica | `ejercicios`, `soluciones_ejercicios` |
-| Ensayos SIMCE | `ensayos_simce`, `preguntas_ensayo`, `soluciones_preguntas_ensayo`, `intentos_ensayo` |
-| Aprendizaje | `respuestas_estudiante`, `pasos_resolucion`, `progreso_estudiante`, `retroalimentacion_ia` |
-| Tutoría | `sesiones_tutor`, `mensajes_tutor` |
-| Acompañamiento | `recomendaciones`, `notificaciones` |
-
-El esquema habilita seguridad por filas (RLS) para cuentas de `profesor` y `administrador`. Los estudiantes se representan como participantes sin nombre, RUT ni correo; su historial permanece asociado al mismo identificador entre sesiones. Cada profesor consulta sus grupos. Credenciales, tokens y soluciones quedan reservados al servidor. El ingreso de participantes requiere rutas de servidor que todavía deben implementarse. Consulta el [modelo de sesiones](mate-simce/supabase/README.md).
-
-## Stack tecnológico
-
-Las versiones corresponden a lo declarado en [package.json](mate-simce/package.json).
-
-| Capa | Tecnologías |
-| --- | --- |
-| Framework | Next.js 16.3.5 con App Router |
-| Interfaz | React 19.2.8 y TypeScript 5 |
-| Estilos | Tailwind CSS 4 |
-| Componentes e iconos | shadcn/ui, Base UI y Lucide React |
-| Autenticación y datos previstos | Supabase Auth, PostgreSQL, `@supabase/ssr` y `@supabase/supabase-js` |
-| IA prevista | Vercel AI SDK 7 y proveedor Google Gemini |
-| Notación matemática prevista | KaTeX y `react-katex` |
-| Calidad de código | ESLint 9 y configuración de Next.js |
-| Despliegue previsto | Vercel |
-
-## Estructura del repositorio
-
-```text
-MateSIMCE/
-├── README.md                 # Presentación general del proyecto
-└── mate-simce/               # Aplicación Next.js
-    ├── app/                  # Página principal, layout y estilos globales
-    ├── components/ui/        # Componentes de interfaz
-    ├── lib/                  # Utilidades compartidas
-    ├── public/               # Recursos estáticos
-    ├── supabase/
-    │   ├── schema.sql        # Definición inicial de la base de datos
-    │   └── seed.sql          # Roles, curso y temas iniciales
-    ├── AGENTS.md             # Instrucciones para asistentes de desarrollo
-    ├── README.md             # Documentación de la aplicación
-    ├── LICENSE               # Licencia MIT
-    ├── package.json          # Dependencias y scripts
-    └── package-lock.json     # Versiones resueltas de dependencias
-```
-
-La raíz de Git es `MateSIMCE/`; los comandos de npm se ejecutan dentro de `mate-simce/`. Las carpetas de API, dashboard y tutoría se incorporarán cuando se implementen esos módulos.
-
-## Desarrollo local
-
-### Requisitos
-
-- Node.js 20.9 o superior, según el requisito de Next.js instalado.
-- npm 10 o superior.
-- Proyecto de Supabase y credenciales de Gemini para las futuras integraciones.
-
-### Instalación
-
-Para una copia nueva del repositorio:
+Requisitos: Node.js **22.13 o superior dentro de la rama 22**, npm y acceso a un proyecto Supabase configurado para la aplicación.
 
 ```bash
 git clone https://github.com/Seba-IECI/MateSIMCE.git
 cd MateSIMCE/mate-simce
 npm ci
-npm run dev
 ```
 
-Si ya tienes el repositorio, entra en `mate-simce/` y ejecuta los dos últimos comandos. La aplicación estará disponible en [localhost:3000](http://localhost:3000).
+Crear `mate-simce/.env.local` con las variables que correspondan y ejecutar `npm run dev`. Abrir http://localhost:3000. En PowerShell se puede usar `npm.cmd` si la política local bloquea `npm.ps1`.
 
 ### Variables de entorno
 
-Para configurar las integraciones previstas, crea `mate-simce/.env` con tus propios valores:
+| Nombre | Uso |
+| --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | URL del proyecto Supabase. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Clave pública anon/publishable; nunca una clave administrativa. |
+| `SUPABASE_SECRET_KEY` | Exclusiva del servidor: lectura de soluciones y guardado de correcciones de práctica, después de autorizar al alumno. |
+| `GEMINI_API_KEY` | Exclusiva del servidor; opcional para el respaldo determinista. |
+| `GEMINI_MODEL` | Modelo habilitado para el proyecto; verificar su disponibilidad antes de desplegar. |
+| `GEMINI_TUTOR_ENABLED` | Solo el valor `true` habilita generación externa; mantener deshabilitada hasta verificar configuración y condiciones de uso. |
 
-```dotenv
-NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
-GEMINI_API_KEY=your-gemini-api-key
-```
-
-La página de presentación actual no consume estas variables. Las variables `NEXT_PUBLIC_*` están destinadas al cliente; `GEMINI_API_KEY` debe utilizarse únicamente desde el servidor. Una clave `service_role` de Supabase nunca debe exponerse en el navegador.
+No guardar valores en Git ni compartir archivos `.env`. La selección del modelo y los límites del proveedor se revisan en cada entorno. Los controles de consumo en memoria no garantizan un límite global entre instancias de Vercel.
 
 ### Base de datos
 
-En un proyecto nuevo de Supabase, ejecuta en el editor SQL, en este orden:
+El entorno requiere el esquema vigente con perfiles de Supabase Auth, roles, contenidos, respuestas e intentos. **`supabase/schema.sql`, `seed.sql` y su README documentan un modelo anterior de participantes y no son una instalación compatible del MVP actual. No ejecutarlos sobre la base vigente.**
 
-1. [schema.sql](mate-simce/supabase/schema.sql), para crear tablas, funciones, permisos y políticas.
-2. [seed.sql](mate-simce/supabase/seed.sql), para cargar los roles, el curso y los temas.
+Los scripts de `supabase/admin/` y `supabase/exams/` se conservan para las operaciones específicas que describen; requieren revisión y ejecución manual por el responsable. No sustituyen una migración base reproducible. No contienen el banco privado y no deben ejecutarse automáticamente desde CI.
 
-El esquema está pensado para una base vacía, aborta si existe `usuarios` y no constituye una migración de tablas existentes. Las cuentas docentes deben provisionarse de forma administrativa; no se crean perfiles de alumno en Auth. Los datos iniciales todavía no incluyen ejercicios ni ensayos. Para la base actual, sigue el [plan de adaptación](mate-simce/supabase/README.md) antes de ejecutar cambios.
+## Comandos
 
-### Comandos disponibles
+Desde `mate-simce/`:
 
-Ejecuta estos comandos desde `mate-simce/`:
-
-| Comando | Propósito |
+| Comando | Comprobación |
 | --- | --- |
-| `npm run dev` | Iniciar el servidor de desarrollo. |
-| `npm run lint` | Revisar el código con ESLint. |
-| `npm run build` | Generar la compilación de producción. |
-| `npm run start` | Servir la compilación de producción. |
+| `npm run dev` | Desarrollo local. |
+| `npm run lint` | ESLint de la aplicación y pruebas. |
+| `npm run typecheck` | Generación de tipos de rutas y TypeScript sin emitir JavaScript. |
+| `npm test` | Vitest con dependencias externas simuladas; sin cuota de Gemini. |
+| `npm run test:node` | Regresiones locales de autenticación y componentes; no depende del banco privado. |
+| `npm run test:http` | Next.js por HTTP real; lecturas autenticadas de Supabase solo con cuenta de pruebas. |
+| `npm run test:e2e:types` | Tipos de las pruebas Cypress. |
+| `npm run test:e2e` | Navegador Cypress con una cuenta adulta y entorno aislado. Crea intentos de prueba. |
+| `npm run build` / `npm run start` | Compilar y servir producción. |
+| `node tests/check-browser-secrets.cjs` | Tras el build, buscar las credenciales privadas configuradas en los archivos públicos generados. |
 
-En PowerShell, si la política de ejecución bloquea `npm.ps1`, puedes usar `npm.cmd` para estos mismos comandos. Actualmente no hay un script de pruebas automatizadas definido.
+Los casos representativos, sus dependencias y las instrucciones de integración/E2E están en [tests/README.md](mate-simce/tests/README.md).
 
-## Despliegue
+## Estructura
 
-Para desplegar en Vercel, importa el repositorio y configura **Root Directory** como `mate-simce`. Define las variables de entorno en la configuración del proyecto cuando se activen las integraciones correspondientes.
+```text
+.github/workflows/ci.yml      CI en la raíz de Git
+mate-simce/
+  app/                       Páginas, Server Actions y rutas HTTP
+  components/                Autenticación, práctica, ensayos y administración
+  lib/                       Autorización, acceso a datos, corrección y tutor
+  cypress/                   Recorridos reales de navegador
+  tests/                     Vitest, Node e integraciones HTTP
+  supabase/admin/            Asignación controlada de administrador
+  supabase/exams/            Habilitación y selección de ensayos
+  private/                   Material local ignorado; no distribuir
+```
 
-## Convenciones de desarrollo
+## Integración continua y despliegue
 
-- Mantener `package.json` y `package-lock.json` versionados para reproducir la instalación.
-- Excluir credenciales, `node_modules/`, `.next/` y artefactos generados mediante el `.gitignore` de la aplicación.
-- Leer [AGENTS.md](mate-simce/AGENTS.md) antes de modificar la aplicación.
-- Documentar las nuevas funcionalidades y diferenciar lo implementado de lo planificado.
-- Ejecutar las verificaciones pertinentes antes de proponer cambios.
+[GitHub Actions](.github/workflows/ci.yml) usa un runner `ubuntu-latest`, Node.js 22 y `npm ci`. Ejecuta ESLint, tipos de aplicación y Cypress, Vitest, regresiones Node, build y contratos HTTP sin sesión sobre Next.js real. Las etapas distinguen comprobaciones de interfaz y lógica de servidor sin inventar otro backend.
 
-## Próximos hitos
+Se activa con push a `main`, `feat/**` o `chore/**` y con Pull Requests a `main`. Los PR públicos no reciben credenciales de Supabase: las integraciones autenticadas figuran como omitidas y Cypress real se ejecuta en el entorno aislado autorizado. Un workflow modificado localmente requiere una ejecución posterior en GitHub para acreditar su estado remoto.
 
-- Integrar registro, inicio de sesión y perfiles de usuario.
-- Implementar práctica de ejercicios y ensayos con corrección en el servidor.
-- Conectar el tutor IA y almacenar el historial de las sesiones.
-- Calcular y mostrar progreso, retroalimentación y recomendaciones.
-- Incorporar gestión de contenido para docentes y administradores.
+Para Vercel: configurar **Root Directory: `mate-simce`**, Node.js 22 y variables separadas para Preview/Production. Revisar Site URL, Redirect URLs y la plantilla de confirmación de Supabase Auth para el dominio HTTPS definitivo. El despliegue y su comprobación siguen pendientes; este repositorio no configura entrega automática a producción.
 
-## Licencia
+## Trabajo con Git
 
-El proyecto se distribuye bajo la [licencia MIT](mate-simce/LICENSE).
+Usar ramas cortas, Pull Requests hacia `main` y Conventional Commits (`feat`, `fix`, `chore`, `test`, `docs`). Revisar todos los archivos del commit y añadir rutas explícitas. No reescribir historial compartido ni versionar entornos, bancos, solucionarios, PDF privados o artefactos generados. La carpeta `private/`, las referencias locales y los SQL privados del banco están ignorados.
+
+La licencia MIT del [código](mate-simce/LICENSE) no convierte el material privado ni sus documentos de referencia en contenido redistribuible.
