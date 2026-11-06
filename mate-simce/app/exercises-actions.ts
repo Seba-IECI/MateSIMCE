@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { getExercise, listExercises, listTopics } from "@/lib/exercises/queries";
 import { checkExerciseAnswer } from "@/lib/exercises/correction";
 import { getPracticeDiagnosis } from "@/lib/exercises/progress";
-import { getTutorFeedback } from "@/lib/exercises/tutor";
+import { getExerciseHint, getTutorFeedback } from "@/lib/exercises/tutor";
 import type { ContentResult, PracticeExercise, TutorHelpKind } from "@/lib/exercises/types";
 
 export async function getTopicsAction() {
@@ -32,4 +32,8 @@ export async function getPracticeDiagnosisAction() {
 
 export async function getTutorFeedbackAction(attemptId: string, kind: TutorHelpKind) {
   return getTutorFeedback(attemptId, kind);
+}
+
+export async function getExerciseHintAction(exerciseId: string) {
+  return getExerciseHint(exerciseId);
 }

@@ -44,6 +44,12 @@ describe("Ensayo breve real", () => {
     ready();
     cy.get('[data-cy="exam-preparation"]').should("not.exist");
     cy.get('[data-cy="exam-progress"]').should("have.text", "0 de 12 respondidas");
+    cy.get('[data-cy="exam-hint"]').click();
+    cy.wait("@examAction");
+    ready();
+    cy.get('[data-cy="exam-hint-response"]').should("be.visible");
+    cy.get('[data-cy="exam-progress"]').should("have.text", "0 de 12 respondidas");
+    cy.get('[data-cy="exam-review"]').should("not.exist");
     cy.get('[data-cy="exam-choice"]:checked').should("not.exist");
     cy.get('[data-cy="exam-results"]').should("not.exist");
     const axes: Record<string, number> = {};

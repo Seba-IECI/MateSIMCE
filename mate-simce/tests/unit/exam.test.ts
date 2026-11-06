@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
@@ -7,7 +8,7 @@ vi.mock("@/lib/ai/gemini", () => ({ generateTutorHelp: vi.fn() }));
 
 import { createClient } from "@/lib/supabase/server";
 import { getStudentAccess } from "@/lib/auth/student";
-import { getExamTutorFeedback, runExam, summarizeExam } from "@/lib/exams/service";
+import { getExamHint, getExamTutorFeedback, runExam, summarizeExam } from "@/lib/exams/service";
 import { generateTutorHelp } from "@/lib/ai/gemini";
 import { examAxes, type ReviewedExamQuestion } from "@/lib/exams/types";
 
@@ -155,6 +156,112 @@ it("recupera un inicio sin intentos como estado vacío", async () => {
 it("no envía al tutor una pregunta de ensayo en curso", async () => {
   await expect(getExamTutorFeedback(attemptId, questions()[0].id)).resolves.toEqual({ status: "forbidden" });
   expect(generateTutorHelp).not.toHaveBeenCalled();
+});
+
+it("la pista previa usa solo la pregunta del intento propio, sin guardar, calificar ni llamar a Gemini", async () => {
+  const result = await getExamHint(attemptId, questions()[0].id);
+  expect(result).toMatchObject({ status: "ok", data: { attemptId, questionId: questions()[0].id, text: expect.any(String) } });
+  expect(rpc).toHaveBeenCalledExactlyOnceWith("matesimce_exam", expect.objectContaining({ p_operation: "resume", p_attempt: attemptId }));
+  expect(generateTutorHelp).not.toHaveBeenCalled();
+  expect(JSON.stringify(result)).not.toMatch(/correctIndex|explanation|Referencia sintética|2\^2=4/);
+});
+
+it.each(["unauthenticated", "forbidden"] as const)("deniega pistas del ensayo con acceso %s", async (status) => {
+  vi.mocked(getStudentAccess).mockResolvedValue({ status });
+  await expect(getExamHint(attemptId, questions()[0].id)).resolves.toEqual({ status });
+  expect(rpc).not.toHaveBeenCalled();
+});
+
+it("rechaza pistas de intentos ajenos, preguntas externas e intentos ya finalizados", async () => {
+  rpc.mockResolvedValueOnce({ data: null, error: { code: "P0001", message: "not_found" } });
+  await expect(getExamHint(attemptId, questions()[0].id)).resolves.toEqual({ status: "not_found" });
+  await expect(getExamHint(attemptId, "44444444-4444-4444-8444-444444444444")).resolves.toEqual({ status: "not_found" });
+  rpc.mockResolvedValue({ data: payload("completado"), error: null });
+  await expect(getExamHint(attemptId, questions()[0].id)).resolves.toEqual({ status: "forbidden" });
+  expect(generateTutorHelp).not.toHaveBeenCalled();
+});
+
+// Offline regression of the patch's text preflight, NOT a PostgreSQL execution.
+function patchFixture() {
+  const patch = readFileSync(new URL("../../supabase/exams/diversify-practice-exam.sql", import.meta.url), "utf8");
+  const installation = readFileSync(new URL("../../supabase/exams/enable-practice-exam.sql", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  const oldFragment = /\$before\$([\s\S]*?)\$before\$/.exec(patch)![1];
+  const newFragment = /\$after\$([\s\S]*?)\$after\$/.exec(patch)![1];
+  const normalize = (s: string) => s.replace(/\r\n/g, "\n").replace(/^\n+/, "");
+  const before = normalize(oldFragment), after = normalize(newFragment);
+  const count = (s: string, fragment: string) => s.split(fragment).length - 1;
+  expect(count(installation, after)).toBe(1);
+  expect(patch).toContain("old_fragment := ltrim(replace(old_fragment,E'\\r\\n',E'\\n'), E'\\n')");
+  expect(patch).toContain("new_fragment := ltrim(replace(new_fragment,E'\\r\\n',E'\\n'), E'\\n')");
+  const apply = (body: string, fragment: string) => {
+    const normalized = body.replace(/\r\n/g, "\n");
+    if (count(normalized, after) === 1) return normalized;
+    const candidate = normalize(fragment);
+    if (count(normalized, candidate) !== 1) throw new Error("incompatible");
+    return normalized.replace(candidate, after);
+  };
+  return { patch, installation, before, after, oldFragment, apply };
+}
+
+it.each(["\n", "\r\n"])("el parche acepta finales de línea %j sin cambiar la función fuera del selector", (lineEnding) => {
+  const f = patchFixture();
+  const deployed = f.installation.replace(f.after, f.before);
+  const windowsFragment = "\r\n" + f.before.replace(/\n/g, "\r\n");
+  expect(deployed.includes(windowsFragment.replace(/^\n+/, ""))).toBe(false); // Previous P0001.
+  const actual = f.apply(deployed.replace(/\n/g, lineEnding), windowsFragment);
+  expect(actual).toBe(f.installation);
+  expect(f.apply(actual, windowsFragment)).toBe(actual);
+});
+
+it("el parche conserva el rechazo de diferencias reales o coincidencias múltiples", () => {
+  const f = patchFixture();
+  const deployed = f.installation.replace(f.after, f.before);
+  expect(() => f.apply(deployed.replace("JOIN public.temas t ON t.id = e.tema_id", "JOIN public.temas t ON false"), f.oldFragment)).toThrow("incompatible");
+  expect(() => f.apply(deployed + f.before, f.oldFragment)).toThrow("incompatible");
+  expect(f.after).toContain("q.tema_id=e.tema_id AND q.opciones=e.opciones");
+  expect(f.after).toContain("q.enunciado=concat_ws(E'\\n\\n', e.titulo, e.enunciado, nullif(e.instrucciones, ''))");
+  expect(f.after).toContain("ORDER BY i.fecha_termino DESC");
+  expect(f.installation).toContain("FROM eligible WHERE position <= 3");
+});
+
+it("modelo local del orden SQL: tres por eje, sin repetición si hay seis candidatas y sin conjuntos consecutivos iguales si hay más de tres", () => {
+  const f = patchFixture();
+  expect(f.after).toContain("coalesce(history.in_latest,false), history.last_used NULLS FIRST, random(), e.id");
+  // Reference model of this ordering; this does not execute PostgreSQL or its joins.
+  const identity = (q: { topic: string; statement: string; choices: string[] }) =>
+    JSON.stringify([q.topic, q.statement, q.choices]);
+  const first = { topic: "topic", statement: "Synthetic statement", choices: ["a", "b", "c", "d"] };
+  expect(identity(first)).not.toBe(identity({ ...first, topic: "other-topic" }));
+  expect(identity(first)).not.toBe(identity({ ...first, statement: "Other statement" }));
+  expect(identity(first)).not.toBe(identity({ ...first, choices: ["b", "a", "c", "d"] }));
+  for (let size = 3; size <= 12; size++) {
+    const chosen = Object.keys(examAxes).flatMap((axis) => {
+      const candidates = Array.from({ length: size }, (_, i) => ({
+        id: axis + ":" + i, axis, inLatest: i < 3, lastUsed: i < 3 ? 100 : i === 3 ? null : i,
+        tie: size - i,
+      }));
+      const result = [...candidates].sort((a,b) => Number(a.inLatest) - Number(b.inLatest)
+        || (a.lastUsed ?? -Infinity) - (b.lastUsed ?? -Infinity) || a.tie - b.tie).slice(0,3);
+      const repeats = result.filter((q) => q.inLatest).length;
+      expect(result).toHaveLength(3);
+      if (size > 3) expect(repeats).toBeLessThan(3);
+      if (size >= 6) expect(repeats).toBe(0);
+      if (size > 3) expect(result[0].id).toBe(axis + ":3"); // Unseen before older seen items.
+      if (size >= 6) expect(result[1].id).toBe(axis + ":4"); // Least recent among seen candidates.
+      return result;
+    });
+    expect(chosen).toHaveLength(12);
+    expect(new Set(chosen.map((q) => q.id)).size).toBe(12);
+    for (const axis of Object.keys(examAxes)) expect(chosen.filter((q) => q.axis === axis)).toHaveLength(3);
+  }
+});
+
+it("resume conserva las preguntas del intento solicitado y no solicita otra selección", async () => {
+  const started = await runExam("start");
+  const recovered = await runExam("resume", attemptId);
+  expect(recovered).toEqual(started);
+  expect(rpc.mock.calls.map(([, parameters]) => parameters.p_operation)).toEqual(["start", "resume"]);
+  expect(rpc.mock.calls[1][1].p_attempt).toBe(attemptId);
 });
 
 it.each(["unauthenticated", "forbidden"] as const)("rechaza ayuda de ensayo con acceso %s, incluido administrador", async (status) => {
