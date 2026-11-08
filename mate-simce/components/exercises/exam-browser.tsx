@@ -26,6 +26,7 @@ export function ExamBrowser({ onHome }: { onHome: () => void }) {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const resultsRef = useRef<HTMLElement>(null);
   const locked = useRef(false);
   const sequence = useRef(0);
   const [help, setHelp] = useState<Record<string, ExamTutorFeedback>>({});
@@ -65,7 +66,7 @@ export function ExamBrowser({ onHome }: { onHome: () => void }) {
       if (result.status === "ok") {
         setAttempt(result.data);
         setConfirming(false);
-        if (resetPosition) setPosition(0);
+        if (resetPosition || result.data?.state === "completado") setPosition(0);
         if (openAttempt && result.data) setOpened(true);
       } else setError(messages[result.status]);
     } catch {
@@ -79,6 +80,11 @@ export function ExamBrowser({ onHome }: { onHome: () => void }) {
   const question = attempt?.questions[position];
   const answered = attempt?.questions.filter((q) => q.selectedIndex !== null).length ?? 0;
   const completed = attempt?.state === "completado";
+  useEffect(() => {
+    if (opened && completed) resultsRef.current?.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start",
+    });
+  }, [attempt?.id, opened, completed]);
 
   async function askHint() {
     if (!attempt || attempt.state !== "en_curso" || !question || hints[question.id] || helpPending.current !== null || busy) return;
@@ -139,7 +145,7 @@ export function ExamBrowser({ onHome }: { onHome: () => void }) {
       {!busy && !error && <><p data-cy="exam-preparation-progress" className="mt-3 text-sm text-[var(--ms-muted)]">{attempt?.state === "en_curso" ? `${answered} de 12 respondidas` : "Nuevo ensayo: 0 de 12 respondidas"}</p><p className="mt-3 text-xs leading-6 text-[var(--ms-muted)]">{attempt?.state === "en_curso" ? "Continuar conserva tus preguntas y las respuestas guardadas. No crea otro intento." : "Cuatro ejes matemáticos. Tres preguntas por eje. Tus selecciones se guardarán al responder."}</p>
       {completed && <Button variant="outline" className="mt-4" onClick={() => { setPosition(0); setOpened(true); }}>Ver últimos resultados</Button>}</>}
     </aside></div>}
-    {opened && attempt?.state === "completado" && <section className={card} data-cy="exam-results" aria-labelledby="exam-results-title">
+    {opened && attempt?.state === "completado" && <section ref={resultsRef} className={card} data-cy="exam-results" aria-labelledby="exam-results-title">
       <div className="flex flex-wrap items-center justify-between gap-3"><h2 id="exam-results-title" className="text-xl font-semibold">Resultados del ensayo</h2><Button disabled={busy} className={primary} onClick={() => { setOpened(false); setConfirming(false); }}>Preparar otro ensayo</Button></div>
       <div className="mt-5 grid items-center gap-6 md:grid-cols-[180px_minmax(0,1fr)]">
         <div className="relative mx-auto grid size-40 place-items-center"><svg viewBox="0 0 120 120" className="absolute inset-0 size-full -rotate-90" aria-hidden="true"><circle cx="60" cy="60" r="50" fill="none" stroke="var(--ms-border)" strokeWidth="9" /><circle cx="60" cy="60" r="50" pathLength="100" fill="none" stroke="var(--ms-primary)" strokeWidth="9" strokeLinecap="round" strokeDasharray={`${attempt.result.accuracy} 100`} /></svg><div className="text-center"><p className="text-3xl font-semibold">{attempt.result.accuracy} %</p><p className="mt-1 text-xs text-[var(--ms-muted)]">{attempt.result.correct} de 12 aciertos</p></div></div>

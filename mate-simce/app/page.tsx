@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import { ArrowRight, BookOpenCheck, ChartNoAxesCombined, ChevronLeft, ChevronRight, Compass, FileText, House, Lightbulb, Menu, Sigma, X } from "lucide-react";
+import { ArrowRight, BookOpenCheck, ChartNoAxesCombined, ChevronRight, Compass, FileText, House, Menu, Sigma, X } from "lucide-react";
+import { AcademicTips } from "@/components/academic-tips";
 import { LogoutButton } from "@/components/auth/logout-button";
 import { ExerciseBrowser } from "@/components/exercises/exercise-browser";
 import { ExamBrowser } from "@/components/exercises/exam-browser";
@@ -15,12 +16,6 @@ const axes = [
   { category: "geometria", name: "Geometría", icon: Compass },
   { category: "estadistica_y_probabilidades", name: "Estadística y probabilidades", icon: ChartNoAxesCombined },
 ];
-const tips = [
-  { axis: "Números", text: "Un exponente negativo indica un recíproco: si la base es distinta de cero, invierte la potencia. No cambia por sí solo el signo del resultado." },
-  { axis: "Álgebra y funciones", text: "Antes de resolver una ecuación, identifica la incógnita. Después, comprueba la solución sustituyéndola en la ecuación original." },
-  { axis: "Geometría", text: "Revisa las unidades. Una longitud se expresa en unidades lineales; un área, en unidades cuadradas; un volumen, en unidades cúbicas." },
-  { axis: "Estadística y probabilidades", text: "La razón entre casos favorables y posibles se aplica cuando los resultados elementales son equiprobables. Comprueba esa condición antes de usarla." },
-];
 type Section = "Inicio" | "Práctica por ejes" | "Ensayo SIMCE";
 const menu = [{ label: "Inicio", icon: House }, { label: "Práctica por ejes", icon: BookOpenCheck }, { label: "Ensayo SIMCE", icon: FileText }] as const;
 
@@ -28,7 +23,6 @@ export default function Home() {
   const [section, setSection] = useState<Section>("Inicio");
   const [category, setCategory] = useState<string>();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [tip, setTip] = useState(0);
   const [topics, setTopics] = useState<ExerciseTopic[]>([]);
   const [topicStatus, setTopicStatus] = useState("loading");
   useEffect(() => {
@@ -77,9 +71,7 @@ export default function Home() {
                       <span className="flex items-center justify-between text-[var(--ms-primary)]"><Icon size={21} aria-hidden="true" /><ChevronRight size={17} aria-hidden="true" /></span><span className="mt-3 block font-semibold">{name}</span><span className="mt-1 block text-xs leading-5 text-[var(--ms-muted)]">{available.length === 1 ? available[0].description || "Abrir ejercicios disponibles" : available.length ? "Explora los temas disponibles de este eje" : "Contenido no disponible"}</span></button>;
                   })}</div>
                 </section>
-                <aside className="ms-card p-5" aria-labelledby="tips-title"><Lightbulb className="mb-3 text-[var(--ms-primary)]" size={24} aria-hidden="true" /><h2 id="tips-title" className="font-semibold">Tips académicos</h2><p className="mt-4 text-xs font-medium text-[var(--ms-primary-hover)]">{tips[tip].axis}</p><p data-cy="tip-text" className="mt-2 min-h-24 text-sm leading-6 text-[var(--ms-muted)]">{tips[tip].text}</p>
-                  <div className="mt-4 flex items-center justify-between gap-2"><button type="button" aria-label="Consejo anterior" className="rounded-full border border-[var(--ms-border)] p-2" onClick={() => setTip((tip + tips.length - 1) % tips.length)}><ChevronLeft size={16} /></button><div className="flex gap-2">{tips.map((item, i) => <button type="button" key={item.axis} aria-label={`Consejo de ${item.axis}`} aria-pressed={tip === i} onClick={() => setTip(i)} className="grid size-6 place-items-center rounded-full"><span className={"h-2 w-2 rounded-full " + (tip === i ? "bg-[var(--ms-primary)]" : "bg-[var(--ms-border)]")} /></button>)}</div><button type="button" aria-label="Consejo siguiente" className="rounded-full border border-[var(--ms-border)] p-2" onClick={() => setTip((tip + 1) % tips.length)}><ChevronRight size={16} /></button></div>
-                </aside>
+                <AcademicTips />
               </div>
             </div>}
         </div>

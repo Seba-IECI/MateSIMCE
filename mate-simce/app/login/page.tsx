@@ -6,6 +6,7 @@ import { LockKeyhole } from "lucide-react";
 
 import { LoginForm } from "@/components/auth/login-form";
 import { SignupForm } from "@/components/auth/signup-form";
+import { RecoveryForm } from "@/components/auth/recovery-form";
 import { getLoginAccess } from "@/lib/auth/student";
 import { createClient } from "@/lib/supabase/server";
 
@@ -19,13 +20,14 @@ const notices: Record<string, string> = {
   "salida-local": "La sesión se eliminó de este dispositivo, pero no pudimos confirmar su cierre remoto.",
   "confirmacion-invalida": "El enlace de confirmación no es válido o ya expiró. Si ya confirmaste tu correo, inicia sesión; de lo contrario, contacta a tu docente.",
   "perfil-no-disponible": "Tu correo fue confirmado, pero no pudimos habilitar tu perfil de estudiante. Contacta a tu docente.",
+  "recuperacion-invalida": "El enlace de recuperación no es válido o ya expiró. Solicita un nuevo correo e intenta con el enlace más reciente. Ábrelo en el mismo navegador donde lo solicitaste.",
 };
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
-  const access = await getLoginAccess(await createClient());
-  if (access.status === "authorized") redirect(access.role === "administrador" ? "/admin" : "/");
-
   const { motivo, modo } = await searchParams;
+  const recovering = modo === "recuperar";
+  const access = await getLoginAccess(await createClient());
+  if (access.status === "authorized" && !recovering) redirect(access.role === "administrador" ? "/admin" : "/");
   const registering = modo === "registro";
   const notice = typeof motivo === "string" && Object.hasOwn(notices, motivo) ? notices[motivo]
     : access.status === "forbidden" ? notices["sin-acceso"]
@@ -55,10 +57,11 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
 
         <section aria-labelledby="login-title" className="rounded-xl border border-[var(--ms-border)] bg-[var(--ms-surface)] p-7 shadow-[0_4px_20px_rgba(37,55,70,0.035)] sm:p-9">
           <p className="text-xs font-medium uppercase tracking-[0.1em] text-[var(--ms-muted)]">Acceso a MateSIMCE</p>
-          <h2 id="login-title" className="mt-3 text-2xl font-semibold tracking-tight">{registering ? "Crea tu cuenta" : "Inicia sesión"}</h2>
-          <p className="mt-3 text-sm leading-6 text-[var(--ms-muted)]">{registering ? "Regístrate como alumno para practicar matemática de 2.º medio." : "Ingresa con tu correo y contraseña para continuar practicando."}</p>
-          {registering ? <SignupForm /> : <>
+          <h2 id="login-title" className="mt-3 text-2xl font-semibold tracking-tight">{recovering ? "Recupera tu acceso" : registering ? "Crea tu cuenta" : "Inicia sesión"}</h2>
+          <p className="mt-3 text-sm leading-6 text-[var(--ms-muted)]">{recovering ? "Solicita un enlace para establecer una contraseña nueva." : registering ? "Regístrate como alumno para practicar matemática de 2.º medio." : "Ingresa con tu correo y contraseña para continuar practicando."}</p>
+          {recovering ? <>{notice && <p role="status" className="mt-4 text-sm leading-6 text-[var(--ms-muted)]">{notice}</p>}<RecoveryForm /></> : registering ? <SignupForm /> : <>
             <LoginForm notice={notice} />
+            <Link href="/login?modo=recuperar" className="mt-4 block text-center text-sm text-[var(--ms-primary)] underline underline-offset-4">¿Olvidaste tu contraseña?</Link>
             <p className="mt-5 text-center text-sm text-[var(--ms-muted)]">¿No tienes cuenta? <Link href="/login?modo=registro" className="font-medium text-[var(--ms-primary)] underline underline-offset-4">Registrarse</Link></p>
           </>}
           <p className="mt-6 flex items-start gap-2.5 border-t border-[var(--ms-border)] pt-5 text-xs leading-5 text-[var(--ms-muted)]">

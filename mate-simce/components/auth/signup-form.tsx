@@ -26,7 +26,10 @@ export function SignupForm() {
   useEffect(() => {
     if (!pending) submitting.current = false;
     if (authenticated || awaitingEmail) formRef.current?.reset();
-    if (authenticated) window.location.replace("/");
+    if (authenticated) {
+      try { window.sessionStorage.removeItem("matesimce-academic-tips-v1"); } catch { /* Almacenamiento opcional. */ }
+      window.location.replace("/");
+    }
   }, [pending, authenticated, awaitingEmail]);
 
   return (

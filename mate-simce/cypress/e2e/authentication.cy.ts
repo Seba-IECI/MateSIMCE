@@ -1,6 +1,21 @@
 import { login } from "../support/login";
 
 describe("E1 — Autenticación real", () => {
+  it("permite pedir recuperación y explica enlaces inválidos sin enviar correos de prueba", () => {
+    cy.visit("/login");
+    cy.contains("a", "¿Olvidaste tu contraseña?").click();
+    cy.contains("h2", "Recupera tu acceso").should("be.visible");
+    cy.get("form").invoke("attr", "novalidate", "novalidate");
+    cy.get('input[name="email"]').type("correo-invalido");
+    cy.contains("button", "Enviar instrucciones").click();
+    cy.contains("Ingresa un correo electrónico válido.").should("be.visible");
+    cy.visit("/auth/confirm?type=recovery");
+    cy.contains("El enlace de recuperación no es válido o ya expiró.").should("be.visible");
+    cy.visit("/reset-password");
+    cy.contains("El enlace o la sesión no están disponibles.").should("be.visible");
+    cy.contains("a", "Solicitar un nuevo enlace").click();
+    cy.contains("h2", "Recupera tu acceso").should("be.visible");
+  });
   it("abre el registro, valida la confirmación y permite volver al login sin crear cuentas", () => {
     cy.visit("/login");
     cy.contains("h2", "Inicia sesión").should("be.visible");
@@ -20,9 +35,18 @@ describe("E1 — Autenticación real", () => {
 
   it("inicia sesión, conserva acceso al recargar y lo pierde al cerrar sesión", () => {
     login();
+    const seen: string[] = [];
+    cy.get('button[aria-label="Consejo siguiente"]').should("be.enabled");
+    for (let index = 0; index < 20; index++) {
+      cy.get('[data-cy="tip-text"]').invoke("text").then((text) => { seen.push(text); });
+      cy.get('button[aria-label="Consejo siguiente"]').should("be.enabled").click();
+    }
+    cy.then(() => expect(new Set(seen).size).to.eq(20));
+    cy.get('[data-cy="tip-text"]').invoke("text").then((text) => expect(text).to.eq(seen[0]));
     cy.reload();
     cy.location("pathname").should("eq", "/");
     cy.contains("h1", "Bienvenido a MateSIMCE").should("be.visible");
+    cy.get('[data-cy="tip-text"]').invoke("text").should((text) => expect(text).to.eq(seen[0]));
     cy.contains("button", "Cerrar sesión").click();
     cy.location("pathname").should("eq", "/login");
     cy.get('input[name="email"]').should("have.value", "");
