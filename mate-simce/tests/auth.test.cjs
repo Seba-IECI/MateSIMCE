@@ -457,9 +457,11 @@ test("the proxy matcher includes the exact home route", () => {
   assert.ok(config.matcher.includes("/"));
 });
 
-for (const [name, options, shouldRedirect, destination = "/"] of [
+for (const [name, options, shouldRedirect, destination = "/", modo] of [
   ["active student", {}, true],
   ["active administrator", { isStudent: false, isAdmin: true }, true, "/admin"],
+  ["active student recovering access", {}, false, "/", "recuperar"],
+  ["active administrator recovering access", { isStudent: false, isAdmin: true }, false, "/admin", "recuperar"],
   ["no session", { noUser: true }, false],
   ["another role", { isStudent: false }, false],
   ["inactive student", { active: false }, false],
@@ -474,10 +476,11 @@ for (const [name, options, shouldRedirect, destination = "/"] of [
       "lucide-react": {},
       "@/components/auth/login-form": {},
       "@/components/auth/signup-form": {},
+      "@/components/auth/recovery-form": {},
       "@/lib/auth/student": { getLoginAccess },
       "@/lib/supabase/server": { async createClient() { return client(options).supabase; } },
     });
-    const render = () => page({ searchParams: Promise.resolve({}) });
+    const render = () => page({ searchParams: Promise.resolve({ modo }) });
     if (shouldRedirect) await assert.rejects(render(), (error) => error.message === `redirect:${destination}`);
     else await assert.doesNotReject(render());
   });
@@ -486,6 +489,7 @@ for (const [name, options, shouldRedirect, destination = "/"] of [
 test("a successful form discards client state and navigates directly to home", () => {
   let reset = false;
   let destination;
+  let clearedTipSession;
   const { LoginForm } = load("components/auth/login-form.tsx", {
     "react": {
       useActionState: () => [{ success: true, message: null }, () => {}, false],
@@ -496,8 +500,9 @@ test("a successful form discards client state and navigates directly to home", (
     "lucide-react": {},
     "@/app/login/actions": { login: () => {} },
     "@/components/ui/button": {},
-  }, { window: { location: { replace(url) { destination = url; } } } });
+  }, { window: { location: { replace(url) { destination = url; } }, sessionStorage: { removeItem(key) { clearedTipSession = key; } } } });
   LoginForm({});
   assert.equal(reset, true);
   assert.equal(destination, "/");
+  assert.equal(clearedTipSession, "matesimce-academic-tips-v1");
 });

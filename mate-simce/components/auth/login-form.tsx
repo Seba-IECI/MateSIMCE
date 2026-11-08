@@ -16,6 +16,8 @@ export function LoginForm({ notice }: { notice?: string }) {
   useEffect(() => {
     if (state.success) {
       formRef.current?.reset();
+      // Renovar solo el estado visual del carrusel; no cambia la sesión de Auth.
+      try { window.sessionStorage.removeItem("matesimce-academic-tips-v1"); } catch { /* Almacenamiento opcional. */ }
       window.location.replace(state.destination === "/admin" ? "/admin" : "/");
     }
   }, [state.success, state.destination]);

@@ -105,7 +105,7 @@ it("confirma el correo y autoriza el perfil con cookies SSR y destino fijo", asy
 });
 
 it("rechaza enlaces de otros flujos y no llama a Auth", async () => {
-  const response = await GET(new NextRequest("http://127.0.0.1:3100/auth/confirm?token_hash=synthetic-token&type=recovery"));
+  const response = await GET(new NextRequest("http://127.0.0.1:3100/auth/confirm?token_hash=synthetic-token&type=magiclink"));
   expect(response.headers.get("location")).toBe("/login?motivo=confirmacion-invalida");
   expect(createClient).not.toHaveBeenCalled();
 });

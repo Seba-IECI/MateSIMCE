@@ -91,6 +91,8 @@ describe("Ensayo breve real", () => {
     cy.get('[data-cy="exam-progress"]').should("have.text", "1 de 12 respondidas");
     cy.get('[data-cy="exam-question-nav"]').first().click();
     cy.get('[data-cy="exam-choice"]').first().should("be.checked");
+    cy.get('[data-cy="exam-question-nav"]').eq(11).click();
+    cy.get('[data-cy="exam-question"]').should("contain.text", "Pregunta 12 de 12");
     cy.get('[data-cy="exam-finish"]').click();
     cy.then(() => { reviewAllowed = true; });
     cy.get('[data-cy="exam-confirm"]').click();
@@ -99,6 +101,8 @@ describe("Ensayo breve real", () => {
     cy.get('[data-cy="exam-results"]').should("be.visible");
     cy.get('[data-cy="exam-results"]').screenshot("ux-exam-results");
     cy.get('[data-cy="exam-review"]').should("be.visible");
+    cy.get('[data-cy="exam-question"]').should("contain.text", "Pregunta 1 de 12");
+    cy.get('[data-cy="exam-choice"]').first().should("be.checked");
     cy.get('[data-cy="exam-choice"]').should("be.disabled");
     cy.contains("button", "Finalizar ensayo").should("not.exist");
     // Replay the real Server Action, with the browser's cookies; never log its body or headers.
@@ -114,5 +118,11 @@ describe("Ensayo breve real", () => {
     });
     cy.contains("button", "Volver al inicio").click();
     cy.contains("h1", "Bienvenido a MateSIMCE").should("be.visible");
+    cy.get('nav[aria-label="Navegación principal"]').contains("button", "Ensayo SIMCE").click();
+    cy.wait("@examAction"); ready();
+    cy.contains("button", "Ver últimos resultados").click();
+    cy.get('[data-cy="exam-results"]').should("be.visible");
+    cy.get('[data-cy="exam-question"]').should("contain.text", "Pregunta 1 de 12");
+    cy.get('[data-cy="exam-choice"]').first().should("be.checked");
   });
 });
